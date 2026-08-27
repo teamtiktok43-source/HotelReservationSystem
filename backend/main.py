@@ -402,10 +402,6 @@ def _is_public_path(path: str) -> bool:
     return (
         path == "/"
         or path == "/login"
-        # Swagger / OpenAPI documentation must be reachable before login
-        # so the backend can be tested independently from the frontend.
-        or path == "/docs"
-        or path == "/openapi.json"
         or path.startswith("/auth/google/")
         or path.startswith("/uploads/")
     )
