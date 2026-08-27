@@ -2232,47 +2232,6 @@ async def seed_default_data():
         # The Rate Plans remain fixed by business rule.
 
         # =====================================================
-        # Room Types
-        # =====================================================
-
-        default_room_types = [
-            ("Single", "SI"),
-            ("Double", "DO"),
-            ("Twin", "TW"),
-            ("Triple", "TR"),
-            ("Quadruple", "QU"),
-            ("Family", "FA"),
-            ("Suite", "SU"),
-        ]
-
-        for room_name, room_code in default_room_types:
-
-            result = await session.execute(
-
-                select(RoomType).where(
-                    RoomType.name == room_name
-                )
-
-            )
-
-            existing = (
-                result.scalar_one_or_none()
-            )
-
-            if not existing:
-
-                session.add(
-                    RoomType(
-                        name=room_name,
-                        code=room_code,
-                        is_active=True,
-                    )
-                )
-            elif not existing.code:
-
-                existing.code = room_code
-
-        # =====================================================
         # Rate Plans
         # =====================================================
 
