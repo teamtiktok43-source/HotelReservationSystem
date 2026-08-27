@@ -91,7 +91,11 @@ export default function SettingsPage() {
     setMessage(null);
     setConnecting(true);
 
-    window.location.href = "http://localhost:8000/auth/google/start";
+    window.location.href =
+      `${(
+        process.env.NEXT_PUBLIC_API_BASE_URL ||
+        "https://hotel-reservation-backend.orkestr.run"
+      ).replace(/\/+$/, "")}/auth/google/start`;
   };
 
   const disconnectGoogle = async () => {
