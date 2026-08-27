@@ -1,37 +1,122 @@
+# =========================
 # Python
+# =========================
 __pycache__/
 *.py[cod]
 *.pyo
+*.pyd
 
+# =========================
 # Virtual Environment
+# =========================
 .venv/
 venv/
+env/
 
-# Environment variables
+# =========================
+# Environment Variables
+# =========================
 .env
 .env.*
+!.env.example
+!frontend/.env.example
+!backend/.env.example
 
-# Next.js
+# =========================
+# Next.js / Node.js
+# =========================
+node_modules/
 frontend/node_modules/
+
+.next/
 frontend/.next/
+
+out/
 frontend/out/
 
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =========================
+# Build / Production
+# =========================
+build/
+frontend/build/
+
+dist/
+frontend/dist/
+
+# =========================
+# TypeScript
+# =========================
+*.tsbuildinfo
+next-env.d.ts
+
+# =========================
 # Logs
+# =========================
 *.log
 
+# =========================
 # OS
+# =========================
 .DS_Store
 Thumbs.db
-# Google credentials and tokens
+
+# =========================
+# Editor / IDE
+# =========================
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+.idea/
+*.swp
+*.swo
+
+# =========================
+# Google Credentials / Tokens
+# =========================
 google_token.json
 backend/google_token.json
+
 credentials.json
 backend/credentials.json
+
 token.json
 backend/token.json
 
-# Sensitive Google OAuth files
-backend/client_secret_*.json
+client_secret*.json
+backend/client_secret*.json
 
-# Uploaded payment receipts
+# =========================
+# OAuth / Sensitive Files
+# =========================
+*.pem
+*.key
+*.crt
+
+# =========================
+# Uploaded Payment Receipts
+# =========================
 backend/uploads/payment-receipts/
+
+# =========================
+# Database Files
+# =========================
+*.db
+*.sqlite
+*.sqlite3
+
+# =========================
+# Vercel
+# =========================
+.vercel/
+
+# =========================
+# Misc
+# =========================
+*.tmp
+*.temp
