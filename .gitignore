@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual Environment
+.venv/
+venv/
+
+# Environment variables
+.env
+.env.*
+
+# Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+# Google credentials and tokens
+google_token.json
+backend/google_token.json
+credentials.json
+backend/credentials.json
+token.json
+backend/token.json
+
+# Sensitive Google OAuth files
+backend/client_secret_*.json
+
+# Uploaded payment receipts
+backend/uploads/payment-receipts/
