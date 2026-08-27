@@ -6,6 +6,7 @@ const API_BASE_URL =
 
 type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
+
   /**
    * Set to true when sending FormData/file uploads.
    * In that case Content-Type is left to the browser.
@@ -30,7 +31,8 @@ export class ApiError extends Error {
 }
 
 async function parseResponseBody(response: Response) {
-  const contentType = response.headers.get("content-type") || "";
+  const contentType =
+    response.headers.get("content-type") || "";
 
   if (contentType.includes("application/json")) {
     return response.json().catch(() => null);
@@ -39,8 +41,14 @@ async function parseResponseBody(response: Response) {
   return response.text().catch(() => "");
 }
 
-function getErrorMessage(data: unknown, status: number) {
-  if (typeof data === "string" && data.trim()) {
+function getErrorMessage(
+  data: unknown,
+  status: number
+) {
+  if (
+    typeof data === "string" &&
+    data.trim()
+  ) {
     return data;
   }
 
@@ -48,7 +56,8 @@ function getErrorMessage(data: unknown, status: number) {
     data &&
     typeof data === "object" &&
     "detail" in data &&
-    typeof (data as { detail?: unknown }).detail === "string"
+    typeof (data as { detail?: unknown }).detail ===
+      "string"
   ) {
     return (data as { detail: string }).detail;
   }
@@ -57,7 +66,8 @@ function getErrorMessage(data: unknown, status: number) {
     data &&
     typeof data === "object" &&
     "message" in data &&
-    typeof (data as { message?: unknown }).message === "string"
+    typeof (data as { message?: unknown }).message ===
+      "string"
   ) {
     return (data as { message: string }).message;
   }
@@ -65,18 +75,28 @@ function getErrorMessage(data: unknown, status: number) {
   switch (status) {
     case 400:
       return "Bad request";
+
     case 401:
       return "Unauthorized";
+
     case 403:
       return "Forbidden";
+
     case 404:
       return "Not found";
+
     case 409:
       return "Conflict";
+
     case 422:
       return "Validation error";
+
+    case 423:
+      return "System license expired";
+
     case 500:
       return "Internal server error";
+
     default:
       return `Request failed (${status})`;
   }
@@ -98,7 +118,10 @@ function prepareBody(
   body: unknown,
   isFormData = false
 ): BodyInit | undefined {
-  if (body === undefined || body === null) {
+  if (
+    body === undefined ||
+    body === null
+  ) {
     return undefined;
   }
 
@@ -128,7 +151,10 @@ export async function apiFetch<T = unknown>(
 
   const requestHeaders = new Headers(headers);
 
-  const preparedBody = prepareBody(body, isFormData);
+  const preparedBody = prepareBody(
+    body,
+    isFormData
+  );
 
   if (
     preparedBody !== undefined &&
@@ -138,30 +164,49 @@ export async function apiFetch<T = unknown>(
     !(body instanceof ArrayBuffer) &&
     typeof body !== "string"
   ) {
-    requestHeaders.set("Content-Type", "application/json");
+    requestHeaders.set(
+      "Content-Type",
+      "application/json"
+    );
   }
 
-  const response = await fetch(buildUrl(path), {
-    ...requestInit,
-    credentials: "include",
-    headers: requestHeaders,
-    body: preparedBody,
-    cache: requestInit.cache ?? "no-store",
-  });
+  const response = await fetch(
+    buildUrl(path),
+    {
+      ...requestInit,
+      credentials: "include",
+      headers: requestHeaders,
+      body: preparedBody,
+      cache:
+        requestInit.cache ?? "no-store",
+    }
+  );
 
-  const data = await parseResponseBody(response);
+  const data =
+    await parseResponseBody(response);
 
   if (!response.ok) {
     const detail =
       data &&
       typeof data === "object" &&
       "detail" in data &&
-      typeof (data as { detail?: unknown }).detail === "string"
-        ? (data as { detail: string }).detail
+      typeof (
+        data as {
+          detail?: unknown;
+        }
+      ).detail === "string"
+        ? (
+            data as {
+              detail: string;
+            }
+          ).detail
         : undefined;
 
     throw new ApiError(
-      getErrorMessage(data, response.status),
+      getErrorMessage(
+        data,
+        response.status
+      ),
       response.status,
       detail
     );
@@ -172,7 +217,10 @@ export async function apiFetch<T = unknown>(
 
 export function apiGet<T = unknown>(
   path: string,
-  options: Omit<RequestOptions, "method" | "body"> = {}
+  options: Omit<
+    RequestOptions,
+    "method" | "body"
+  > = {}
 ) {
   return apiFetch<T>(path, {
     ...options,
@@ -183,7 +231,10 @@ export function apiGet<T = unknown>(
 export function apiPost<T = unknown>(
   path: string,
   body?: unknown,
-  options: Omit<RequestOptions, "method" | "body"> = {}
+  options: Omit<
+    RequestOptions,
+    "method" | "body"
+  > = {}
 ) {
   return apiFetch<T>(path, {
     ...options,
@@ -195,7 +246,10 @@ export function apiPost<T = unknown>(
 export function apiPut<T = unknown>(
   path: string,
   body?: unknown,
-  options: Omit<RequestOptions, "method" | "body"> = {}
+  options: Omit<
+    RequestOptions,
+    "method" | "body"
+  > = {}
 ) {
   return apiFetch<T>(path, {
     ...options,
@@ -207,7 +261,10 @@ export function apiPut<T = unknown>(
 export function apiPatch<T = unknown>(
   path: string,
   body?: unknown,
-  options: Omit<RequestOptions, "method" | "body"> = {}
+  options: Omit<
+    RequestOptions,
+    "method" | "body"
+  > = {}
 ) {
   return apiFetch<T>(path, {
     ...options,
@@ -218,7 +275,10 @@ export function apiPatch<T = unknown>(
 
 export function apiDelete<T = unknown>(
   path: string,
-  options: Omit<RequestOptions, "method" | "body"> = {}
+  options: Omit<
+    RequestOptions,
+    "method" | "body"
+  > = {}
 ) {
   return apiFetch<T>(path, {
     ...options,
@@ -227,7 +287,9 @@ export function apiDelete<T = unknown>(
 }
 
 /**
- * Authentication helpers
+ * =========================================================
+ * Authentication
+ * =========================================================
  */
 
 export type CurrentUser = {
@@ -239,7 +301,9 @@ export type CurrentUser = {
 };
 
 export async function getCurrentUser() {
-  return apiGet<{ user: CurrentUser }>("/auth/me");
+  return apiGet<{
+    user: CurrentUser;
+  }>("/auth/me");
 }
 
 export async function login(
@@ -264,24 +328,135 @@ export async function logout() {
 }
 
 /**
- * Convenience helper for frontend code that needs to redirect on auth loss.
+ * Convenience helper for frontend code
+ * that needs to redirect on auth loss.
  *
- * The backend remains the source of truth. This helper only clears the
- * temporary local copy used by the UI.
+ * The backend remains the source of truth.
+ * This helper only clears the temporary local
+ * copy used by the UI.
  */
+
 export function clearLocalUser() {
-  if (typeof window !== "undefined") {
-    localStorage.removeItem("hotel_user");
+  if (
+    typeof window !== "undefined"
+  ) {
+    localStorage.removeItem(
+      "hotel_user"
+    );
   }
 }
 
-export function saveLocalUser(user: CurrentUser) {
-  if (typeof window !== "undefined") {
+export function saveLocalUser(
+  user: CurrentUser
+) {
+  if (
+    typeof window !== "undefined"
+  ) {
     localStorage.setItem(
       "hotel_user",
       JSON.stringify(user)
     );
   }
 }
+
+/**
+ * =========================================================
+ * System License
+ * =========================================================
+ *
+ * Backend endpoints:
+ *
+ * GET  /license/status
+ * POST /license/generate
+ * POST /license/activate
+ *
+ * License status is available to all
+ * authenticated users.
+ *
+ * Generate / Activate are IT-only.
+ */
+
+/**
+ * Current system license status.
+ */
+
+export type LicenseStatus = {
+  active: boolean;
+  activated_at: string | null;
+  expires_at: string | null;
+  days_remaining: number;
+  message: string;
+};
+
+/**
+ * GET /license/status
+ */
+
+export async function getLicenseStatus() {
+  return apiGet<LicenseStatus>(
+    "/license/status"
+  );
+}
+
+/**
+ * Response from POST /license/generate
+ *
+ * The backend intentionally returns the
+ * activation code only once.
+ */
+
+export type LicenseGenerateResponse = {
+  success: boolean;
+  message: string;
+  code: string;
+  valid_for_days: number;
+};
+
+/**
+ * Generate a new activation code.
+ *
+ * IT users only.
+ */
+
+export async function generateLicenseCode() {
+  return apiPost<LicenseGenerateResponse>(
+    "/license/generate"
+  );
+}
+
+/**
+ * Response from POST /license/activate
+ */
+
+export type LicenseActivateResponse = {
+  success: boolean;
+  message: string;
+  activated_at: string;
+  expires_at: string;
+  days: number;
+};
+
+/**
+ * Activate the system using an activation code.
+ *
+ * IT users only.
+ */
+
+export async function activateLicense(
+  code: string
+) {
+  return apiPost<LicenseActivateResponse>(
+    "/license/activate",
+    {
+      code: code.trim(),
+    }
+  );
+}
+
+/**
+ * =========================================================
+ * Export API Base URL
+ * =========================================================
+ */
 
 export { API_BASE_URL };
