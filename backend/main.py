@@ -41,9 +41,6 @@ from models import (
 app = FastAPI(
     title="Hotel Reservation System API",
     version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
 )
 
 
@@ -60,7 +57,6 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"],
 )
 
 
@@ -403,20 +399,13 @@ async def activate_license(
 
 
 def _is_public_path(path: str) -> bool:
-    """
-    Routes that must remain reachable before authentication.
-
-    Swagger/OpenAPI and ReDoc are public developer documentation.
-    Login/OAuth endpoints must also be reachable before a session exists.
-    """
     return (
         path == "/"
         or path == "/login"
+        # Swagger / OpenAPI documentation must be reachable before login
+        # so the backend can be tested independently from the frontend.
         or path == "/docs"
-        or path == "/docs/oauth2-redirect"
         or path == "/openapi.json"
-        or path == "/redoc"
-        or path == "/favicon.ico"
         or path.startswith("/auth/google/")
         or path.startswith("/uploads/")
     )
