@@ -278,11 +278,9 @@ export default function Dashboard() {
       }
 
       if (!response.ok || !data?.user) {
-        throw new Error(
-          typeof data?.detail === "string"
-            ? data.detail
-            : "Could not verify your login session."
-        );
+        localStorage.removeItem("hotel_user");
+        window.location.replace("/");
+        return false;
       }
 
       setCurrentUser({
@@ -515,6 +513,28 @@ export default function Dashboard() {
   // System Activation is IT only.
   const canManageActivation =
     currentRole === "IT";
+
+  // Keep the protected dashboard hidden until the session is verified.
+  // If the session is invalid, loadCurrentUser() redirects to the Sign In page.
+  if (userLoading) {
+    return (
+      <main
+        dir="ltr"
+        className="flex min-h-screen items-center justify-center bg-[#0B1116] text-[#F3F7F9]"
+      >
+        <div className="text-center">
+          <div className="text-4xl">🏨</div>
+          <p className="mt-4 text-sm text-[#9AA8B3]">
+            Checking your session...
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!currentUser) {
+    return null;
+  }
 
   const handleLogout = async () => {
     try {
@@ -777,26 +797,6 @@ export default function Dashboard() {
                 : "🔄 Refresh Data"}
             </button>
           </div>
-
-          {/* Authentication Error */}
-          {authError && (
-            <div className="mb-6 rounded-2xl border border-red-500/30 bg-red-500/10 px-5 py-4 text-sm text-red-300">
-              <p className="font-semibold">
-                ❌ Authentication Error
-              </p>
-
-              <p className="mt-1 text-red-200/80">
-                {authError}
-              </p>
-
-              <Link
-                href="/"
-                className="mt-3 inline-flex rounded-lg border border-red-400/30 px-3 py-2 text-xs transition hover:bg-red-500/10"
-              >
-                Return to Sign In
-              </Link>
-            </div>
-          )}
 
           {/* Error */}
           {error && (
