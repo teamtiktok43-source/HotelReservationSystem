@@ -3,7 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { apiGet, apiPatch, apiPost } from "../../lib/api";
+
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/+$/, "") ||
+  "https://hotel-reservation-backend.orkestr.run";
 
 type Room = {
   id: number;
@@ -203,9 +206,25 @@ export default function ReservationDetailsPage() {
       setLoading(true);
       setError("");
 
-      const data = await apiGet<Reservation>(
-        `/reservation/${encodeURIComponent(bookingNumber)}`
+      const response = await fetch(
+        `${API_BASE_URL}/reservation/${encodeURIComponent(
+          bookingNumber
+        )}`,
+        {
+          method: "GET",
+          cache: "no-store",
+        }
       );
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(
+          typeof data?.detail === "string"
+            ? data.detail
+            : `تعذر تحميل الحجز (${response.status})`
+        );
+      }
 
       setReservation(data);
       setConfirmationInput(data?.hotel_confirmation_number || "");
@@ -234,12 +253,28 @@ export default function ReservationDetailsPage() {
       setWorking(true);
       setMessage(null);
 
-      await apiPatch(
-        `/reservation/${encodeURIComponent(
+      const response = await fetch(
+        `${API_BASE_URL}/reservation/${encodeURIComponent(
           reservation.booking_number
         )}/status`,
-        { status }
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ status }),
+        }
       );
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(
+          typeof data?.detail === "string"
+            ? data.detail
+            : `فشل تحديث حالة الحجز (${response.status})`
+        );
+      }
 
       setMessage({
         type: "success",
@@ -275,14 +310,30 @@ export default function ReservationDetailsPage() {
       setWorking(true);
       setMessage(null);
 
-      const data = await apiPost<{ email?: string }>(
-        `/reservation/${encodeURIComponent(
+      const response = await fetch(
+        `${API_BASE_URL}/reservation/${encodeURIComponent(
           reservation.booking_number
         )}/send-email`,
         {
-          sent_by: reservation.created_by || "Reservations Department",
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sent_by: reservation.created_by || "Reservations Department",
+          }),
         }
       );
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(
+          typeof data?.detail === "string"
+            ? data.detail
+            : `فشل إرسال البريد (${response.status})`
+        );
+      }
 
       setMessage({
         type: "success",
@@ -310,15 +361,31 @@ export default function ReservationDetailsPage() {
       setWorking(true);
       setMessage(null);
 
-      await apiPatch(
-        `/reservation/${encodeURIComponent(
+      const response = await fetch(
+        `${API_BASE_URL}/reservation/${encodeURIComponent(
           reservation.booking_number
         )}/hotel-confirmation`,
         {
-          confirmation_number:
-            confirmationInput.trim() || null,
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            confirmation_number:
+              confirmationInput.trim() || null,
+          }),
         }
       );
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(
+          typeof data?.detail === "string"
+            ? data.detail
+            : `فشل حفظ رقم تأكيد الفندق (${response.status})`
+        );
+      }
 
       setMessage({
         type: "success",
