@@ -228,6 +228,27 @@ function formatGuestComposition(reservation: Reservation) {
 export default function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  const [theme, setTheme] =
+    useState<"dark" | "light">("dark");
+
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("hotel_theme");
+    const nextTheme =
+      savedTheme === "light" ? "light" : "dark";
+
+    document.documentElement.dataset.theme = nextTheme;
+    setTheme(nextTheme);
+  }, []);
+
+  const toggleTheme = () => {
+    const nextTheme =
+      theme === "dark" ? "light" : "dark";
+
+    document.documentElement.dataset.theme = nextTheme;
+    localStorage.setItem("hotel_theme", nextTheme);
+    setTheme(nextTheme);
+  };
+
   const [reservations, setReservations] =
     useState<Reservation[]>([]);
 
@@ -591,7 +612,30 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="flex h-10 items-center gap-2 rounded-lg border border-[#394B58] bg-[#111A21] px-3 text-xs font-medium text-[#D7E0E6] transition hover:bg-[#1B2730]"
+              aria-label={
+                theme === "dark"
+                  ? "Switch to light mode"
+                  : "Switch to dark mode"
+              }
+              title={
+                theme === "dark"
+                  ? "Light mode"
+                  : "Dark mode"
+              }
+            >
+              <span aria-hidden="true">
+                {theme === "dark" ? "☀️" : "🌙"}
+              </span>
+              <span className="hidden sm:inline">
+                {theme === "dark" ? "Light" : "Dark"}
+              </span>
+            </button>
+
             <div className="hidden text-left sm:block">
               <p className="text-sm font-semibold">
                 {userLoading

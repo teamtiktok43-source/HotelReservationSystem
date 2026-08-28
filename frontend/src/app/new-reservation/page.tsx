@@ -340,6 +340,9 @@ export default function NewReservationPage() {
   const [nationalitySearch, setNationalitySearch] =
     useState("");
 
+  const [nationalityDropdownOpen, setNationalityDropdownOpen] =
+    useState(false);
+
   const [guestCountSearch, setGuestCountSearch] =
     useState("");
 
@@ -1370,6 +1373,7 @@ setEmailMessage(
     setSelectedGuestCountId("");
 
     setNationalityInput("");
+    setNationalityDropdownOpen(false);
 
     setCheckIn("");
 
@@ -1688,17 +1692,26 @@ setEmailMessage(
                   <input
                     type="text"
                     value={nationalityInput}
-                    onChange={(e) =>
-                      setNationalityInput(
-                        e.target.value
-                      )
-                    }
+                    onFocus={() => {
+                      setNationalityDropdownOpen(true);
+                    }}
+                    onChange={(e) => {
+                      setNationalityInput(e.target.value);
+                      setNationalityDropdownOpen(true);
+                    }}
+                    onBlur={() => {
+                      window.setTimeout(() => {
+                        setNationalityDropdownOpen(false);
+                      }, 150);
+                    }}
                     placeholder="EG or Egypt"
                     className={`${inputClass} uppercase`}
                     disabled={loadingNationalities}
+                    autoComplete="off"
                   />
 
-                  {nationalityInput.trim() &&
+                  {nationalityDropdownOpen &&
+                    nationalityInput.trim() &&
                     filteredNationalities.length > 0 && (
                       <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-700 bg-[#0b1220]">
                         {filteredNationalities
@@ -1707,10 +1720,10 @@ setEmailMessage(
                             <button
                               type="button"
                               key={nationality.id}
-                              onClick={() => {
-                                setNationalityInput(
-                                  nationality.code
-                                );
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setNationalityInput(nationality.code);
+                                setNationalityDropdownOpen(false);
                               }}
                               className="block w-full px-4 py-3 text-left text-sm text-slate-200 transition hover:bg-slate-800"
                             >
