@@ -53,7 +53,6 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "https://hotel-reservation-system.orkestr.run",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -399,106 +398,6 @@ async def activate_license(
     }
 
 
-SESSION_IDLE_SECONDS = 6 * 60 * 60
-SESSION_IDLE_DELTA = timedelta(seconds=SESSION_IDLE_SECONDS)
-
-
-def get_client_ip(request: Request) -> str | None:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip() or None
-    return request.client.host if request.client else None
-
-
-def get_user_agent(request: Request) -> str | None:
-    value = request.headers.get("user-agent")
-    return value[:1000] if value else None
-
-
-async def ensure_user_session_tables() -> None:
-    async with engine.begin() as conn:
-        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP WITH TIME ZONE"))
-        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMP WITH TIME ZONE"))
-        await conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS user_sessions (
-                session_id VARCHAR(128) PRIMARY KEY,
-                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                last_activity_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-                revoked_at TIMESTAMP WITH TIME ZONE,
-                ip_address VARCHAR(100),
-                user_agent TEXT
-            )
-        """))
-        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_sessions_user_id ON user_sessions(user_id)"))
-        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_sessions_expires_at ON user_sessions(expires_at)"))
-
-
-async def create_user_session(request: Request, user_id: int) -> tuple[str, datetime]:
-    now = datetime.now(timezone.utc)
-    expires_at = now + SESSION_IDLE_DELTA
-    session_id = secrets.token_urlsafe(48)
-    async with AsyncSessionLocal() as session:
-        await session.execute(text("""
-            INSERT INTO user_sessions (session_id,user_id,created_at,last_activity_at,expires_at,ip_address,user_agent)
-            VALUES (:session_id,:user_id,:created_at,:last_activity_at,:expires_at,:ip_address,:user_agent)
-        """), {"session_id":session_id,"user_id":user_id,"created_at":now,"last_activity_at":now,"expires_at":expires_at,"ip_address":get_client_ip(request),"user_agent":get_user_agent(request)})
-        await session.commit()
-    return session_id, expires_at
-
-
-async def revoke_user_session(session_id: str | None) -> None:
-    if not session_id: return
-    async with AsyncSessionLocal() as session:
-        await session.execute(text("UPDATE user_sessions SET revoked_at=CURRENT_TIMESTAMP WHERE session_id=:session_id AND revoked_at IS NULL"), {"session_id":session_id})
-        await session.commit()
-
-
-async def revoke_all_user_sessions(user_id: int) -> None:
-    async with AsyncSessionLocal() as session:
-        await session.execute(text("UPDATE user_sessions SET revoked_at=CURRENT_TIMESTAMP WHERE user_id=:user_id AND revoked_at IS NULL"), {"user_id":user_id})
-        await session.commit()
-
-
-async def touch_user_session(request: Request, session_id: str, user_id: int) -> bool:
-    now = datetime.now(timezone.utc)
-    expires_at = now + SESSION_IDLE_DELTA
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(text("SELECT user_id,expires_at,revoked_at FROM user_sessions WHERE session_id=:session_id"), {"session_id":session_id})
-        row=result.mappings().first()
-        if not row or int(row["user_id"]) != int(user_id): return False
-        stored=row["expires_at"]
-        if stored.tzinfo is None: stored=stored.replace(tzinfo=timezone.utc)
-        if row["revoked_at"] is not None or stored <= now:
-            await session.execute(text("UPDATE user_sessions SET revoked_at=COALESCE(revoked_at,CURRENT_TIMESTAMP) WHERE session_id=:session_id"), {"session_id":session_id})
-            await session.commit()
-            return False
-        await session.execute(text("""UPDATE user_sessions SET last_activity_at=:last_activity_at,expires_at=:expires_at,ip_address=:ip_address,user_agent=:user_agent WHERE session_id=:session_id AND revoked_at IS NULL"""), {"last_activity_at":now,"expires_at":expires_at,"ip_address":get_client_ip(request),"user_agent":get_user_agent(request),"session_id":session_id})
-        await session.commit()
-    request.session["last_activity_at"]=now.isoformat()
-    request.session["session_expires_at"]=expires_at.isoformat()
-    return True
-
-
-async def get_user_session_summary(user_id: int) -> dict:
-    async with AsyncSessionLocal() as session:
-        result=await session.execute(text("""
-            SELECT COUNT(*) FILTER (WHERE revoked_at IS NULL AND expires_at > CURRENT_TIMESTAMP) AS active_sessions,
-                   MAX(last_activity_at) FILTER (WHERE revoked_at IS NULL AND expires_at > CURRENT_TIMESTAMP) AS active_last_activity,
-                   MAX(created_at) FILTER (WHERE revoked_at IS NULL AND expires_at > CURRENT_TIMESTAMP) AS active_login_at
-            FROM user_sessions WHERE user_id=:user_id
-        """), {"user_id":user_id})
-        row=result.mappings().first()
-    return {"active_sessions":int(row["active_sessions"] or 0) if row else 0,"active_last_activity":row["active_last_activity"] if row else None,"active_login_at":row["active_login_at"] if row else None}
-
-
-async def cleanup_expired_user_sessions() -> None:
-    async with AsyncSessionLocal() as session:
-        await session.execute(text("UPDATE user_sessions SET revoked_at=CURRENT_TIMESTAMP WHERE revoked_at IS NULL AND expires_at <= CURRENT_TIMESTAMP"))
-        await session.commit()
-
-
 def _is_public_path(path: str) -> bool:
     return (
         path == "/"
@@ -615,18 +514,11 @@ async def authorization_middleware(request: Request, call_next):
         )
 
     if not current_user.is_active:
-        await revoke_user_session(request.session.get("session_id"))
         request.session.clear()
-        return JSONResponse(status_code=403, content={"detail": "This user is inactive"})
-
-    session_id = request.session.get("session_id")
-    if not session_id:
-        request.session.clear()
-        return JSONResponse(status_code=401, content={"detail": "SESSION_REAUTH_REQUIRED"})
-
-    if not await touch_user_session(request, str(session_id), current_user.id):
-        request.session.clear()
-        return JSONResponse(status_code=401, content={"detail": "SESSION_EXPIRED_OR_REVOKED"})
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "This user is inactive"},
+        )
 
     normalized_role = normalize_role(current_user.role)
 
@@ -1141,22 +1033,10 @@ HOTEL_FILES_DIR.mkdir(parents=True, exist_ok=True)
 MAX_HOTEL_FILE_BYTES = 25 * 1024 * 1024
 HOTEL_IMAGE_PREFIX = "image/"
 
-# IMPORTANT:
-# In production, do NOT depend on client_secret*.json being present in the
-# Docker image. The file is intentionally ignored by Git.
-#
-# Set GOOGLE_CLIENT_SECRET_JSON in Orkestr to the complete contents of the
-# Google OAuth client JSON file. The application will read it directly from
-# the environment.
-#
-# For local development, the code still supports client_secret*.json inside
-# the backend folder as a fallback.
-
 GOOGLE_REDIRECT_URI = os.getenv(
     "GOOGLE_REDIRECT_URI",
     "http://localhost:8000/auth/google/callback",
 )
-
 FRONTEND_URL = os.getenv(
     "FRONTEND_URL",
     "http://localhost:3000",
@@ -1169,115 +1049,10 @@ GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/gmail.send",
 ]
 
-GOOGLE_CLIENT_SECRET_JSON = os.getenv(
-    "GOOGLE_CLIENT_SECRET_JSON",
-    "",
-).strip()
-
-GOOGLE_CLIENT_ID = os.getenv(
-    "GOOGLE_CLIENT_ID",
-    "",
-).strip()
-
-GOOGLE_CLIENT_SECRET = os.getenv(
-    "GOOGLE_CLIENT_SECRET",
-    "",
-).strip()
-
 GOOGLE_TOKEN_FILE = BASE_DIR / "google_token.json"
 
 
-def get_google_client_config() -> dict:
-    """
-    Load Google OAuth client configuration.
-
-    Production:
-        GOOGLE_CLIENT_SECRET_JSON
-
-    Optional alternative:
-        GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET
-
-    Local development fallback:
-        backend/client_secret*.json
-    """
-
-    # ---------------------------------------------------------
-    # 1) Production: complete JSON stored in environment
-    # ---------------------------------------------------------
-    if GOOGLE_CLIENT_SECRET_JSON:
-        try:
-            config = json.loads(GOOGLE_CLIENT_SECRET_JSON)
-
-            # Google downloaded OAuth files normally contain either
-            # "web" or "installed" at the top level.
-            if "web" in config and isinstance(config["web"], dict):
-                client_config = config["web"]
-            elif "installed" in config and isinstance(config["installed"], dict):
-                client_config = config["installed"]
-            else:
-                client_config = config
-
-            if not client_config.get("client_id"):
-                raise ValueError("Google OAuth JSON does not contain client_id")
-
-            if not client_config.get("client_secret"):
-                raise ValueError(
-                    "Google OAuth JSON does not contain client_secret"
-                )
-
-            return {
-                "web": {
-                    "client_id": client_config["client_id"],
-                    "client_secret": client_config["client_secret"],
-                    "auth_uri": client_config.get(
-                        "auth_uri",
-                        "https://accounts.google.com/o/oauth2/auth",
-                    ),
-                    "token_uri": client_config.get(
-                        "token_uri",
-                        "https://oauth2.googleapis.com/token",
-                    ),
-                    "auth_provider_x509_cert_url": client_config.get(
-                        "auth_provider_x509_cert_url",
-                        "https://www.googleapis.com/oauth2/v1/certs",
-                    ),
-                    "redirect_uris": client_config.get(
-                        "redirect_uris",
-                        [GOOGLE_REDIRECT_URI],
-                    ),
-                }
-            }
-
-        except json.JSONDecodeError as error:
-            raise RuntimeError(
-                f"GOOGLE_CLIENT_SECRET_JSON is not valid JSON: {error}"
-            )
-
-        except Exception as error:
-            raise RuntimeError(
-                f"Invalid Google OAuth configuration: {error}"
-            )
-
-    # ---------------------------------------------------------
-    # 2) Alternative: separate environment variables
-    # ---------------------------------------------------------
-    if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
-        return {
-            "web": {
-                "client_id": GOOGLE_CLIENT_ID,
-                "client_secret": GOOGLE_CLIENT_SECRET,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "auth_provider_x509_cert_url": (
-                    "https://www.googleapis.com/oauth2/v1/certs"
-                ),
-                "redirect_uris": [GOOGLE_REDIRECT_URI],
-            }
-        }
-
-    # ---------------------------------------------------------
-    # 3) Local development: ignored JSON file
-    # ---------------------------------------------------------
+def find_google_client_secret_file() -> Path:
     candidates = sorted(
         BASE_DIR.glob("client_secret*.json"),
         key=lambda item: item.stat().st_mtime,
@@ -1286,52 +1061,13 @@ def get_google_client_config() -> dict:
 
     if not candidates:
         raise FileNotFoundError(
-            "Google OAuth configuration is missing. "
-            "Set GOOGLE_CLIENT_SECRET_JSON in the production environment "
-            "or place client_secret*.json in the backend folder for local development."
+            "Google OAuth client JSON was not found in the backend folder."
         )
 
-    try:
-        data = json.loads(
-            candidates[0].read_text(encoding="utf-8")
-        )
-
-        if "web" in data or "installed" in data:
-            return data
-
-        # Accept a bare client config too.
-        return {"web": data}
-
-    except Exception as error:
-        raise RuntimeError(
-            f"Could not read Google OAuth client configuration: {error}"
-        )
-
-
-def create_google_oauth_flow(
-    state: str | None = None,
-) -> Flow:
-    """
-    Create a Google OAuth Flow from environment configuration or local file.
-    """
-
-    flow = Flow.from_client_config(
-        get_google_client_config(),
-        scopes=GOOGLE_SCOPES,
-        state=state,
-        redirect_uri=GOOGLE_REDIRECT_URI,
-    )
-
-    return flow
+    return candidates[0]
 
 
 def save_google_credentials(credentials: Credentials) -> None:
-    """
-    Save the OAuth refresh/access token locally.
-
-    The token file is ignored by Git and is never committed.
-    """
-
     GOOGLE_TOKEN_FILE.write_text(
         credentials.to_json(),
         encoding="utf-8",
@@ -1417,11 +1153,8 @@ def get_connected_google_email() -> str | None:
 
         print("[Google OAuth] UserInfo response did not contain an email")
         return None
-
     except Exception as error:
-        print(
-            f"[Google OAuth] Failed to get Google account email: {error}"
-        )
+        print(f"[Google OAuth] Failed to get Google account email: {error}")
         return None
 
 
@@ -1463,7 +1196,6 @@ def gmail_send_message(
 
 def serialize_email_settings():
     email = get_connected_google_email()
-
     return {
         "configured": bool(email),
         "provider": "gmail",
@@ -2924,13 +2656,6 @@ async def startup_event():
     # ---------------------------------------------------------
 
     await migrate_database()
-
-    # ---------------------------------------------------------
-    # Persistent user sessions
-    # ---------------------------------------------------------
-
-    await ensure_user_session_tables()
-    await cleanup_expired_user_sessions()
 
     # ---------------------------------------------------------
     # License System
@@ -5031,7 +4756,12 @@ async def create_reservation(
 @app.get("/auth/google/start")
 async def google_auth_start(request: Request):
     try:
-        flow = create_google_oauth_flow()
+        client_secret_file = find_google_client_secret_file()
+        flow = Flow.from_client_secrets_file(
+            str(client_secret_file),
+            scopes=GOOGLE_SCOPES,
+            redirect_uri=GOOGLE_REDIRECT_URI,
+        )
 
         authorization_url, state = flow.authorization_url(
             access_type="offline",
@@ -5108,7 +4838,13 @@ async def google_auth_callback(request: Request):
         )
 
     try:
-        flow = create_google_oauth_flow(state=state)
+        client_secret_file = find_google_client_secret_file()
+        flow = Flow.from_client_secrets_file(
+            str(client_secret_file),
+            scopes=GOOGLE_SCOPES,
+            state=state,
+            redirect_uri=GOOGLE_REDIRECT_URI,
+        )
 
         print("[Google OAuth] FETCH TOKEN START")
         flow.fetch_token(
@@ -6024,26 +5760,30 @@ async def get_reservation_print_history(
 # Users
 # =========================================================
 
-def serialize_user(user: User, session_summary: dict | None = None):
-    summary=session_summary or {}
-    last_login_at=getattr(user,"last_login_at",None)
-    last_activity_at=getattr(user,"last_activity_at",None)
-    if summary.get("active_last_activity") is not None: last_activity_at=summary["active_last_activity"]
-    if summary.get("active_login_at") is not None: last_login_at=summary["active_login_at"]
-    active_sessions=int(summary.get("active_sessions",0) or 0)
-    return {"id":user.id,"username":user.username,"full_name":user.full_name,"role":normalize_role(user.role),"is_active":user.is_active,"created_at":user.created_at,"last_login_at":last_login_at,"last_activity_at":last_activity_at,"active_sessions":active_sessions,"online":active_sessions>0}
+def serialize_user(user: User):
+    return {
+        "id": user.id,
+        "username": user.username,
+        "full_name": user.full_name,
+        "role": normalize_role(user.role),
+        "is_active": user.is_active,
+        "created_at": user.created_at,
+    }
 
 
 @app.get("/users")
-async def get_users(request: Request):
-    current_role=normalize_role(request.session.get("role"))
+async def get_users():
     async with AsyncSessionLocal() as session:
-        query=select(User)
-        if current_role == ROLE_MANAGER:
-            query=query.where(User.role != ROLE_IT)
-        result=await session.execute(query.order_by(User.id.desc()))
-        users=result.scalars().all()
-    return [serialize_user(user, await get_user_session_summary(user.id)) for user in users]
+        result = await session.execute(
+            select(User).order_by(User.id.desc())
+        )
+
+        users = result.scalars().all()
+
+        return [
+            serialize_user(user)
+            for user in users
+        ]
 
 
 @app.post("/users")
@@ -6243,12 +5983,11 @@ async def update_user(
 
         await session.commit()
         await session.refresh(user)
-        await revoke_all_user_sessions(user.id)
 
         return {
             "success": True,
             "message": "User updated successfully",
-            "user": serialize_user(user, await get_user_session_summary(user.id)),
+            "user": serialize_user(user),
         }
 
 
@@ -6274,17 +6013,14 @@ async def update_user_status(
         user = result.scalar_one_or_none()
 
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        current_role = normalize_role(request.session.get("role"))
-        target_role = normalize_role(user.role)
-        if target_role == ROLE_IT and current_role != ROLE_IT:
-            raise HTTPException(status_code=403, detail="Only IT can change the status of an IT user")
+            raise HTTPException(
+                status_code=404,
+                detail="User not found",
+            )
 
         user.is_active = data.is_active
+
         await session.commit()
-        if not user.is_active:
-            await revoke_all_user_sessions(user.id)
         await session.refresh(user)
 
         return {
@@ -6296,22 +6032,6 @@ async def update_user_status(
             ),
             "user": serialize_user(user),
         }
-
-
-@app.post("/users/{user_id}/force-logout")
-async def force_logout_user(request: Request, user_id: int):
-    current_role=normalize_role(request.session.get("role"))
-    async with AsyncSessionLocal() as session:
-        result=await session.execute(select(User).where(User.id==user_id))
-        user=result.scalar_one_or_none()
-    if not user: raise HTTPException(status_code=404, detail="User not found")
-    target_role=normalize_role(user.role)
-    if target_role == ROLE_IT and current_role != ROLE_IT:
-        raise HTTPException(status_code=403, detail="Only IT can force logout an IT user")
-    if user_id == int(request.session.get("user_id")):
-        raise HTTPException(status_code=400, detail="Use Logout to sign out your own account")
-    await revoke_all_user_sessions(user_id)
-    return {"success":True,"message":f"All active sessions for {user.username} have been logged out."}
 
 
 @app.delete("/users/{user_id}")
@@ -6350,9 +6070,11 @@ async def delete_user(
             normalize_role(user.role) == ROLE_IT
             and current_role != ROLE_IT
         ):
-            raise HTTPException(status_code=403, detail="Only IT can delete an IT user")
+            raise HTTPException(
+                status_code=403,
+                detail="Only IT can delete an IT user",
+            )
 
-        await revoke_all_user_sessions(user.id)
         await session.delete(user)
         await session.commit()
 
@@ -6500,19 +6222,10 @@ async def login(
             )
 
         normalized_role = normalize_role(user.role)
-        session_id, session_expires_at = await create_user_session(request, user.id)
-        now = datetime.now(timezone.utc)
-
-        async with AsyncSessionLocal() as update_session:
-            await update_session.execute(text("UPDATE users SET last_login_at=:last_login_at,last_activity_at=:last_activity_at WHERE id=:user_id"), {"last_login_at":now,"last_activity_at":now,"user_id":user.id})
-            await update_session.commit()
 
         request.session["user_id"] = user.id
         request.session["username"] = user.username
         request.session["role"] = normalized_role
-        request.session["session_id"] = session_id
-        request.session["last_activity_at"] = now.isoformat()
-        request.session["session_expires_at"] = session_expires_at.isoformat()
 
         return {
 
@@ -6522,11 +6235,24 @@ async def login(
             "message":
                 "Login successful",
 
-            "user": serialize_user(user, {
-                "active_sessions": 1,
-                "active_last_activity": now,
-                "active_login_at": now,
-            }),
+            "user": {
+
+                "id":
+                    user.id,
+
+                "username":
+                    user.username,
+
+                "full_name":
+                    user.full_name,
+
+                "role":
+                    normalized_role,
+
+                "is_active":
+                    user.is_active,
+
+            },
 
         }
 
@@ -6575,13 +6301,12 @@ async def auth_me(request: Request):
 
         return {
             "authenticated": True,
-            "user": serialize_user(user, await get_user_session_summary(user.id)),
+            "user": serialize_user(user),
         }
 
 
 @app.post("/logout")
 async def logout(request: Request):
-    await revoke_user_session(request.session.get("session_id"))
     request.session.clear()
 
     return {
@@ -6600,7 +6325,6 @@ async def logout(request: Request):
 app = SessionMiddleware(
     app,
     secret_key=SESSION_SECRET,
-    max_age=SESSION_IDLE_SECONDS,
     same_site="lax",
     https_only=False,
 )
