@@ -249,7 +249,7 @@ export default function Dashboard() {
   const [authError, setAuthError] =
     useState("");
 
-  const loadCurrentUser = useCallback(async () => {
+  const loadCurrentUser = useCallback(async (): Promise<boolean> => {
     try {
       setUserLoading(true);
       setAuthError("");
@@ -274,7 +274,7 @@ export default function Dashboard() {
       if (response.status === 401 || response.status === 403) {
         localStorage.removeItem("hotel_user");
         window.location.replace("/");
-        return;
+        return false;
       }
 
       if (!response.ok || !data?.user) {
@@ -296,6 +296,8 @@ export default function Dashboard() {
         is_active:
           data.user.is_active,
       });
+
+      return true;
     } catch (sessionError) {
       setCurrentUser(null);
 
@@ -304,6 +306,8 @@ export default function Dashboard() {
           ? sessionError.message
           : "Could not load the current user session."
       );
+
+      return false;
     } finally {
       setUserLoading(false);
     }
@@ -378,44 +382,30 @@ export default function Dashboard() {
   useEffect(() => {
     let cancelled = false;
 
-    const checkAuthenticationAndLoad = async () => {
-      // Verify the session first. If it is invalid, loadCurrentUser()
-      // redirects to the sign-in page and we do not request protected data.
-      await loadCurrentUser();
+    const checkAuthenticationAndLoad = async (
+      showRefreshing = false
+    ) => {
+      // Authentication is the gate for every protected dashboard request.
+      const authenticated = await loadCurrentUser();
 
-      if (cancelled) {
+      if (cancelled || !authenticated) {
         return;
       }
 
-      // currentUser is updated asynchronously, so do not rely on it here.
-      // The auth request itself is the gate for the first data request.
-      void loadReservations();
+      void loadReservations(showRefreshing);
     };
 
-    void checkAuthenticationAndLoad();
+    void checkAuthenticationAndLoad(false);
 
-    const interval =
-      window.setInterval(() => {
-        void loadCurrentUser();
-        void loadReservations(true);
-      }, 30000);
+    const interval = window.setInterval(() => {
+      void checkAuthenticationAndLoad(true);
+    }, 30000);
 
     return () => {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [
-    loadCurrentUser,
-    loadReservations,
-  ]);
-
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [
-    loadCurrentUser,
-    loadReservations,
-  ]);
+  }, [loadCurrentUser, loadReservations]);
 
   const stats = useMemo<Stats>(() => {
     const todayKey =
@@ -1235,3 +1225,4 @@ export default function Dashboard() {
       </section>
     </main>
   );
+}
