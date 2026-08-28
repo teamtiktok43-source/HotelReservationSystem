@@ -2,9 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { apiDelete, apiGet, apiPatch, apiPost } from "../lib/api";
-
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { API_BASE_URL, apiDelete, apiGet, apiPatch, apiPost } from "../lib/api";
 
 type Hotel = {
   id: number;
