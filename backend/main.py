@@ -53,10 +53,12 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "https://hotel-reservation-system.orkestr.run",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 
@@ -402,10 +404,6 @@ def _is_public_path(path: str) -> bool:
     return (
         path == "/"
         or path == "/login"
-        # Swagger / OpenAPI documentation must be reachable before login
-        # so the backend can be tested independently from the frontend.
-        or path == "/docs"
-        or path == "/openapi.json"
         or path.startswith("/auth/google/")
         or path.startswith("/uploads/")
     )
@@ -1052,100 +1050,7 @@ GOOGLE_SCOPES = [
 GOOGLE_TOKEN_FILE = BASE_DIR / "google_token.json"
 
 
-def _load_google_client_json() -> dict | None:
-    """Load Google OAuth client JSON from production environment variables."""
-    if GOOGLE_CLIENT_SECRET_JSON:
-        try:
-            return json.loads(GOOGLE_CLIENT_SECRET_JSON)
-        except json.JSONDecodeError as error:
-            raise RuntimeError(
-                "GOOGLE_CLIENT_SECRET_JSON is not valid JSON. "
-                "If your hosting panel does not preserve multiline JSON, "
-                "use GOOGLE_CLIENT_SECRET_JSON_B64 instead."
-            ) from error
-
-    if GOOGLE_CLIENT_SECRET_JSON_B64:
-        try:
-            decoded = base64.b64decode(
-                GOOGLE_CLIENT_SECRET_JSON_B64,
-                validate=True,
-            ).decode("utf-8")
-            return json.loads(decoded)
-        except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise RuntimeError(
-                "GOOGLE_CLIENT_SECRET_JSON_B64 is not a valid Base64-encoded "
-                "Google OAuth client JSON."
-            ) from error
-
-    return None
-
-
-def get_google_client_config() -> dict:
-    """Return Google OAuth client configuration.
-
-    Production priority:
-      1. GOOGLE_CLIENT_SECRET_JSON
-      2. GOOGLE_CLIENT_SECRET_JSON_B64
-      3. GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET
-
-    Local development fallback:
-      client_secret*.json inside the backend directory.
-    """
-    config = _load_google_client_json()
-
-    if config is not None:
-        if isinstance(config.get("web"), dict):
-            client_config = config["web"]
-        elif isinstance(config.get("installed"), dict):
-            client_config = config["installed"]
-        else:
-            client_config = config
-
-        if not client_config.get("client_id"):
-            raise RuntimeError(
-                "Google OAuth configuration does not contain client_id."
-            )
-        if not client_config.get("client_secret"):
-            raise RuntimeError(
-                "Google OAuth configuration does not contain client_secret."
-            )
-
-        return {
-            "web": {
-                "client_id": client_config["client_id"],
-                "client_secret": client_config["client_secret"],
-                "auth_uri": client_config.get(
-                    "auth_uri",
-                    "https://accounts.google.com/o/oauth2/auth",
-                ),
-                "token_uri": client_config.get(
-                    "token_uri",
-                    "https://oauth2.googleapis.com/token",
-                ),
-                "auth_provider_x509_cert_url": client_config.get(
-                    "auth_provider_x509_cert_url",
-                    "https://www.googleapis.com/oauth2/v1/certs",
-                ),
-                "redirect_uris": client_config.get(
-                    "redirect_uris",
-                    [GOOGLE_REDIRECT_URI],
-                ),
-            }
-        }
-
-    if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
-        return {
-            "web": {
-                "client_id": GOOGLE_CLIENT_ID,
-                "client_secret": GOOGLE_CLIENT_SECRET,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "auth_provider_x509_cert_url":
-                    "https://www.googleapis.com/oauth2/v1/certs",
-                "redirect_uris": [GOOGLE_REDIRECT_URI],
-            }
-        }
-
+def find_google_client_secret_file() -> Path:
     candidates = sorted(
         BASE_DIR.glob("client_secret*.json"),
         key=lambda item: item.stat().st_mtime,
@@ -1154,25 +1059,10 @@ def get_google_client_config() -> dict:
 
     if not candidates:
         raise FileNotFoundError(
-            "Google OAuth configuration is missing. Set "
-            "GOOGLE_CLIENT_SECRET_JSON or GOOGLE_CLIENT_SECRET_JSON_B64 "
-            "in production, or place client_secret*.json in the backend "
-            "folder for local development."
+            "Google OAuth client JSON was not found in the backend folder."
         )
 
-    try:
-        data = json.loads(candidates[0].read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise RuntimeError(
-            f"Could not read Google OAuth client configuration: {error}"
-        ) from error
-
-    if isinstance(data.get("web"), dict) or isinstance(data.get("installed"), dict):
-        return data
-
-    raise RuntimeError(
-        "Google OAuth client JSON must contain a web or installed configuration."
-    )
+    return candidates[0]
 
 
 def save_google_credentials(credentials: Credentials) -> None:
@@ -4864,8 +4754,9 @@ async def create_reservation(
 @app.get("/auth/google/start")
 async def google_auth_start(request: Request):
     try:
-        flow = Flow.from_client_config(
-            get_google_client_config(),
+        client_secret_file = find_google_client_secret_file()
+        flow = Flow.from_client_secrets_file(
+            str(client_secret_file),
             scopes=GOOGLE_SCOPES,
             redirect_uri=GOOGLE_REDIRECT_URI,
         )
@@ -4945,8 +4836,9 @@ async def google_auth_callback(request: Request):
         )
 
     try:
-        flow = Flow.from_client_config(
-            get_google_client_config(),
+        client_secret_file = find_google_client_secret_file()
+        flow = Flow.from_client_secrets_file(
+            str(client_secret_file),
             scopes=GOOGLE_SCOPES,
             state=state,
             redirect_uri=GOOGLE_REDIRECT_URI,
