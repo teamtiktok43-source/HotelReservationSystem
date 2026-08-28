@@ -297,14 +297,14 @@ export default function Dashboard() {
 
       return true;
     } catch (sessionError) {
+      // Any failed session verification must leave the protected dashboard.
+      // This prevents the dashboard from becoming a blank page when the
+      // browser cannot verify the session for any reason.
       setCurrentUser(null);
+      setAuthError("");
 
-      setAuthError(
-        sessionError instanceof Error
-          ? sessionError.message
-          : "Could not load the current user session."
-      );
-
+      localStorage.removeItem("hotel_user");
+      window.location.replace("/");
       return false;
     } finally {
       setUserLoading(false);
@@ -533,7 +533,11 @@ export default function Dashboard() {
   }
 
   if (!currentUser) {
-    return null;
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#0B1116]">
+        <p className="text-sm text-[#9AA8B3]">Redirecting to sign in...</p>
+      </main>
+    );
   }
 
   const handleLogout = async () => {
