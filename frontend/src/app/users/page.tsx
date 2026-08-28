@@ -78,7 +78,23 @@ export default function UsersPage() {
       setMessage(null);
 
       const data = await getUsers();
-      setUsers(data);
+
+      // Normalize the API response into the stricter User type used by this page.
+      // The backend/API type allows some fields to be optional, while the UI
+      // expects concrete values for status/session information.
+      const normalizedUsers: User[] = data.map((user) => ({
+        ...user,
+        full_name: user.full_name ?? null,
+        role: user.role ?? null,
+        is_active: user.is_active ?? false,
+        created_at: user.created_at ?? null,
+        last_login_at: user.last_login_at ?? null,
+        last_activity_at: user.last_activity_at ?? null,
+        active_sessions: user.active_sessions ?? 0,
+        online: user.online ?? false,
+      }));
+
+      setUsers(normalizedUsers);
     } catch (error) {
       setMessage({
         type: "error",
