@@ -9,7 +9,7 @@ import { apiDelete, apiPatch, apiPost, getUsers, ManagedUser } from "../lib/api"
 type User = {
   id: number;
   username: string;
-  full_name: string | null;
+  full_name?: string | null;
   role: string | null;
   is_active: boolean;
   created_at?: string | null;
@@ -105,6 +105,46 @@ export default function UsersPage() {
     };
   }, [loadUsers]);
 
+  async function forceLogout(user: User) {
+    if (user.active_sessions <= 0) {
+      setMessage({
+        type: "error",
+        text: "This user has no active sessions.",
+      });
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Force logout ${user.username} from all active devices?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const data = await apiPost<{
+        success: boolean;
+        message: string;
+      }>(`/users/${user.id}/force-logout`);
+
+      setMessage({
+        type: "success",
+        text: data.message,
+      });
+
+      await loadUsers(true);
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text:
+          error instanceof Error
+            ? error.message
+            : "Could not force logout the user.",
+      });
+    }
+  }
+
   const filteredUsers = useMemo(() => {
     const value = search.trim().toLowerCase();
 
@@ -113,23 +153,7 @@ export default function UsersPage() {
     }
 
     return users.filter((user) => {
-      async function forceLogout(user: User) {
-    if (user.active_sessions <= 0) {
-      setMessage({ type: "error", text: "This user has no active sessions." });
-      return;
-    }
-    const confirmed = window.confirm(`Force logout ${user.username} from all active devices?`);
-    if (!confirmed) return;
-    try {
-      const data = await apiPost<{ success: boolean; message: string }>(`/users/${user.id}/force-logout`);
-      setMessage({ type: "success", text: data.message });
-      await loadUsers(true);
-    } catch (error) {
-      setMessage({ type: "error", text: error instanceof Error ? error.message : "Could not force logout the user." });
-    }
-  }
-
-  return (
+      return (
         user.username?.toLowerCase().includes(value) ||
         user.full_name?.toLowerCase().includes(value) ||
         user.role?.toLowerCase().includes(value)
