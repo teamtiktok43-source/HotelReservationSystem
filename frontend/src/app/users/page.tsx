@@ -2,9 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { apiDelete, apiPatch, apiPost, getUsers, ManagedUser } from "../lib/api";
-
-
+import { apiPatch, apiPost, getUsers } from "../lib/api";
 
 type User = {
   id: number;
@@ -32,13 +30,39 @@ type Message = {
   text: string;
 };
 
+const ROLES = ["IT", "Manager", "Reservations Employee"] as const;
+
 const emptyForm: UserForm = {
   username: "",
   password: "",
   full_name: "",
-  role: "Administrator",
+  role: "Reservations Employee",
   is_active: true,
 };
+
+function normalizeRole(role?: string | null) {
+  if (!role) return "Reservations Employee";
+
+  const normalized = role.trim().toLowerCase();
+
+  if (normalized === "it") {
+    return "IT";
+  }
+
+  if (normalized === "manager") {
+    return "Manager";
+  }
+
+  if (
+    normalized === "reservations employee" ||
+    normalized === "reservations_employee" ||
+    normalized === "reservation employee"
+  ) {
+    return "Reservations Employee";
+  }
+
+  return role;
+}
 
 function formatDateTime(value?: string | null) {
   if (!value) return "-";
@@ -79,9 +103,6 @@ export default function UsersPage() {
 
       const data = await getUsers();
 
-      // Normalize the API response into the stricter User type used by this page.
-      // The backend/API type allows some fields to be optional, while the UI
-      // expects concrete values for status/session information.
       const normalizedUsers: User[] = data.map((user) => ({
         ...user,
         full_name: user.full_name ?? null,
@@ -187,11 +208,11 @@ export default function UsersPage() {
       active,
       inactive,
       online,
-      admins: users.filter(
-        (user) =>
-          (user.role || "").toLowerCase() ===
-          "administrator"
-      ).length,
+      admins: users.filter((user) => {
+        const role = (user.role || "").toLowerCase();
+
+        return role === "manager" || role === "administrator";
+      }).length,
     };
   }, [users]);
 
@@ -205,11 +226,15 @@ export default function UsersPage() {
   function openEditModal(user: User) {
     setEditingUser(user);
 
+    const currentRole = normalizeRole(user.role);
+
     setForm({
       username: user.username || "",
       password: "",
       full_name: user.full_name || "",
-      role: user.role || "User",
+      role: ROLES.includes(currentRole as (typeof ROLES)[number])
+        ? currentRole
+        : "Reservations Employee",
       is_active: user.is_active,
     });
 
@@ -250,6 +275,14 @@ export default function UsersPage() {
       return;
     }
 
+    if (!ROLES.includes(form.role as (typeof ROLES)[number])) {
+      setMessage({
+        type: "error",
+        text: "Please select a valid user role.",
+      });
+      return;
+    }
+
     try {
       setSaving(true);
       setMessage(null);
@@ -257,7 +290,7 @@ export default function UsersPage() {
       const payload: Record<string, unknown> = {
         username: form.username.trim(),
         full_name: form.full_name.trim() || null,
-        role: form.role.trim() || null,
+        role: form.role,
         is_active: form.is_active,
       };
 
@@ -266,19 +299,30 @@ export default function UsersPage() {
       }
 
       const data = editingUser
-        ? await apiPatch<{ success: boolean; message: string; user: User }>(
-            `/users/${editingUser.id}`,
-            payload
-          )
-        : await apiPost<{ success: boolean; message: string; user: User }>(
-            "/users",
-            payload
-          );
+        ? await apiPatch<{
+            success: boolean;
+            message: string;
+            user: User;
+          }>(`/users/${editingUser.id}`, payload)
+        : await apiPost<{
+            success: boolean;
+            message: string;
+            user: User;
+          }>("/users", payload);
 
-      setMessage({ type: "success", text: data.message || (editingUser ? "User updated successfully." : "User added successfully.") });
+      setMessage({
+        type: "success",
+        text:
+          data.message ||
+          (editingUser
+            ? "User updated successfully."
+            : "User added successfully."),
+      });
+
       setModalOpen(false);
       setEditingUser(null);
       setForm(emptyForm);
+
       await loadUsers(true);
     } catch (error) {
       setMessage({
@@ -297,12 +341,19 @@ export default function UsersPage() {
     try {
       setMessage(null);
 
-      const data = await apiPatch<{ success: boolean; message: string; user: User }>(
-        `/users/${user.id}/status`,
-        { is_active: !user.is_active }
-      );
+      const data = await apiPatch<{
+        success: boolean;
+        message: string;
+        user: User;
+      }>(`/users/${user.id}/status`, {
+        is_active: !user.is_active,
+      });
 
-      setMessage({ type: "success", text: data.message });
+      setMessage({
+        type: "success",
+        text: data.message,
+      });
+
       await loadUsers(true);
     } catch (error) {
       setMessage({
@@ -418,7 +469,7 @@ export default function UsersPage() {
             />
 
             <StatCard
-              label="Administrators"
+              label="Managers"
               value={loading ? "..." : String(stats.admins)}
               icon="🛡️"
               tone="blue"
@@ -500,10 +551,21 @@ export default function UsersPage() {
                         Status
                       </th>
 
-                      <th className="px-5 py-4 text-right">Session</th>
-                      <th className="px-5 py-4 text-right">Last Login</th>
-                      <th className="px-5 py-4 text-right">Last Activity</th>
-                      <th className="px-5 py-4 text-right">Created At</th>
+                      <th className="px-5 py-4 text-right">
+                        Session
+                      </th>
+
+                      <th className="px-5 py-4 text-right">
+                        Last Login
+                      </th>
+
+                      <th className="px-5 py-4 text-right">
+                        Last Activity
+                      </th>
+
+                      <th className="px-5 py-4 text-right">
+                        Created At
+                      </th>
 
                       <th className="px-5 py-4 text-center">
                         Actions
@@ -526,7 +588,7 @@ export default function UsersPage() {
                         </td>
 
                         <td className="px-5 py-4 text-slate-300">
-                          {user.role || "-"}
+                          {normalizeRole(user.role)}
                         </td>
 
                         <td className="px-5 py-4">
@@ -544,14 +606,34 @@ export default function UsersPage() {
                         </td>
 
                         <td className="px-5 py-4">
-                          <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${user.online ? "border-green-500/20 bg-green-500/10 text-green-300" : "border-slate-600 bg-slate-800 text-slate-400"}`}>
-                            {user.online ? "🟢 Online" : "⚪ Offline"}
+                          <span
+                            className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${
+                              user.online
+                                ? "border-green-500/20 bg-green-500/10 text-green-300"
+                                : "border-slate-600 bg-slate-800 text-slate-400"
+                            }`}
+                          >
+                            {user.online
+                              ? "🟢 Online"
+                              : "⚪ Offline"}
                           </span>
-                          <div className="mt-1 text-xs text-slate-500">{user.active_sessions || 0} active</div>
+
+                          <div className="mt-1 text-xs text-slate-500">
+                            {user.active_sessions || 0} active
+                          </div>
                         </td>
-                        <td className="px-5 py-4 text-slate-400">{formatDateTime(user.last_login_at)}</td>
-                        <td className="px-5 py-4 text-slate-400">{formatDateTime(user.last_activity_at)}</td>
-                        <td className="px-5 py-4 text-slate-400">{formatDateTime(user.created_at)}</td>
+
+                        <td className="px-5 py-4 text-slate-400">
+                          {formatDateTime(user.last_login_at)}
+                        </td>
+
+                        <td className="px-5 py-4 text-slate-400">
+                          {formatDateTime(user.last_activity_at)}
+                        </td>
+
+                        <td className="px-5 py-4 text-slate-400">
+                          {formatDateTime(user.created_at)}
+                        </td>
 
                         <td className="px-5 py-4">
                           <div className="flex justify-center gap-2">
@@ -583,8 +665,12 @@ export default function UsersPage() {
 
                             <button
                               type="button"
-                              onClick={() => forceLogout(user)}
-                              disabled={user.active_sessions <= 0}
+                              onClick={() =>
+                                forceLogout(user)
+                              }
+                              disabled={
+                                user.active_sessions <= 0
+                              }
                               className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                               🚪 Force Logout
@@ -600,8 +686,7 @@ export default function UsersPage() {
           )}
 
           <p className="mt-4 text-xs text-slate-500">
-            Password changes are available from the Edit User button, and current passwords are not
-            displayed.
+            Password changes are available from the Edit User button, and current passwords are not displayed.
           </p>
         </div>
       </section>
@@ -680,8 +765,7 @@ export default function UsersPage() {
                 placeholder="Example: Mostafa Amer"
               />
 
-              <Field
-                label="Role"
+              <RoleSelect
                 value={form.role}
                 onChange={(value) =>
                   setForm((current) => ({
@@ -689,7 +773,6 @@ export default function UsersPage() {
                     role: value,
                   }))
                 }
-                placeholder="Administrator"
               />
 
               <label className="flex items-center gap-3 rounded-xl border border-slate-700 bg-[#0b1220] p-4 md:col-span-2">
@@ -744,6 +827,44 @@ export default function UsersPage() {
         </div>
       )}
     </main>
+  );
+}
+
+function RoleSelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div>
+      <label
+        htmlFor="user-role"
+        className="mb-2 block text-sm text-slate-400"
+      >
+        Role
+      </label>
+
+      <select
+        id="user-role"
+        value={value}
+        onChange={(event) =>
+          onChange(event.target.value)
+        }
+        className="w-full cursor-pointer rounded-xl border border-slate-600 bg-[#0b1220] px-4 py-3 text-sm text-white outline-none transition focus:border-blue-500"
+      >
+        {ROLES.map((role) => (
+          <option
+            key={role}
+            value={role}
+            className="bg-[#111827] text-white"
+          >
+            {role}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }
 
