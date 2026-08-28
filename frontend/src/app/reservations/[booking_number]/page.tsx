@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { API_BASE_URL } from "../../lib/api";
+import { apiGet, apiPatch, apiPost } from "../../lib/api";
 
 type Room = {
   id: number;
@@ -203,25 +203,9 @@ export default function ReservationDetailsPage() {
       setLoading(true);
       setError("");
 
-      const response = await fetch(
-        `${API_BASE_URL}/reservation/${encodeURIComponent(
-          bookingNumber
-        )}`,
-        {
-          method: "GET",
-          cache: "no-store",
-        }
+      const data = await apiGet<Reservation>(
+        `/reservation/${encodeURIComponent(bookingNumber)}`
       );
-
-      const data = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(
-          typeof data?.detail === "string"
-            ? data.detail
-            : `تعذر تحميل الحجز (${response.status})`
-        );
-      }
 
       setReservation(data);
       setConfirmationInput(data?.hotel_confirmation_number || "");
@@ -250,28 +234,12 @@ export default function ReservationDetailsPage() {
       setWorking(true);
       setMessage(null);
 
-      const response = await fetch(
-        `${API_BASE_URL}/reservation/${encodeURIComponent(
+      await apiPatch(
+        `/reservation/${encodeURIComponent(
           reservation.booking_number
         )}/status`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ status }),
-        }
+        { status }
       );
-
-      const data = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(
-          typeof data?.detail === "string"
-            ? data.detail
-            : `فشل تحديث حالة الحجز (${response.status})`
-        );
-      }
 
       setMessage({
         type: "success",
@@ -307,30 +275,14 @@ export default function ReservationDetailsPage() {
       setWorking(true);
       setMessage(null);
 
-      const response = await fetch(
-        `${API_BASE_URL}/reservation/${encodeURIComponent(
+      const data = await apiPost<{ email?: string }>(
+        `/reservation/${encodeURIComponent(
           reservation.booking_number
         )}/send-email`,
         {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            sent_by: reservation.created_by || "Reservations Department",
-          }),
+          sent_by: reservation.created_by || "Reservations Department",
         }
       );
-
-      const data = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(
-          typeof data?.detail === "string"
-            ? data.detail
-            : `فشل إرسال البريد (${response.status})`
-        );
-      }
 
       setMessage({
         type: "success",
@@ -358,31 +310,15 @@ export default function ReservationDetailsPage() {
       setWorking(true);
       setMessage(null);
 
-      const response = await fetch(
-        `${API_BASE_URL}/reservation/${encodeURIComponent(
+      await apiPatch(
+        `/reservation/${encodeURIComponent(
           reservation.booking_number
         )}/hotel-confirmation`,
         {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            confirmation_number:
-              confirmationInput.trim() || null,
-          }),
+          confirmation_number:
+            confirmationInput.trim() || null,
         }
       );
-
-      const data = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(
-          typeof data?.detail === "string"
-            ? data.detail
-            : `فشل حفظ رقم تأكيد الفندق (${response.status})`
-        );
-      }
 
       setMessage({
         type: "success",

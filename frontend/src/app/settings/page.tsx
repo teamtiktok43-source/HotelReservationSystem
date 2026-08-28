@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { API_BASE_URL, apiGet, apiPost } from "../lib/api";
+import { apiGet, apiPost } from "../lib/api";
 
 type GoogleStatus = {
   connected: boolean;
@@ -91,7 +91,11 @@ export default function SettingsPage() {
     setMessage(null);
     setConnecting(true);
 
-    window.location.href = `${API_BASE_URL}/auth/google/start`;
+    window.location.href =
+      `${(
+        process.env.NEXT_PUBLIC_API_BASE_URL ||
+        "https://hotel-reservation-backend.orkestr.run"
+      ).replace(/\/+$/, "")}/auth/google/start`;
   };
 
   const disconnectGoogle = async () => {
