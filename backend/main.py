@@ -14,6 +14,7 @@ import json
 import os
 import secrets
 from pathlib import Path
+import requests
 import bcrypt
 
 from google_auth_oauthlib.flow import Flow
@@ -1015,6 +1016,7 @@ def get_payment_label(
 
 
 # =========================================================
+# =========================================================
 # Google OAuth / Gmail API Configuration
 # =========================================================
 
@@ -1035,52 +1037,78 @@ GOOGLE_REDIRECT_URI = os.getenv(
     "GOOGLE_REDIRECT_URI",
     "http://localhost:8000/auth/google/callback",
 )
+
 FRONTEND_URL = os.getenv(
     "FRONTEND_URL",
     "http://localhost:3000",
 ).rstrip("/")
 
+# Only request the permissions actually required by the application.
 GOOGLE_SCOPES = [
-    "openid",
     "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/userinfo.profile",
     "https://www.googleapis.com/auth/gmail.send",
 ]
 
 GOOGLE_TOKEN_FILE = BASE_DIR / "google_token.json"
 
 
+def find_google_client_secret_file() -> Path:
+    candidates = sorted(
+        BASE_DIR.glob("client_secret*.json"),
+        key=lambda item: item.stat().st_mtime,
+        reverse=True,
+    )
+
+    if not candidates:
+        raise FileNotFoundError(
+            "Google OAuth client JSON was not found in the backend folder."
+        )
+
+    return candidates[0]
+
+
 def get_google_client_config() -> dict:
     """
-    Load the Google OAuth Web Client configuration.
+    Load Google OAuth web client configuration.
 
-    Production can use GOOGLE_CLIENT_SECRET_JSON_B64 so multiline JSON is
-    preserved safely by the hosting panel.
+    Production prefers GOOGLE_CLIENT_SECRET_JSON_B64 because it safely
+    preserves JSON in hosting dashboards.
 
-    GOOGLE_CLIENT_SECRET_JSON is supported as a plain JSON environment
-    variable, and a local client_secret*.json file is kept as a fallback
-    for local development.
+    GOOGLE_CLIENT_SECRET_JSON is supported as plain JSON, and a local
+    client_secret*.json file is supported as a development fallback.
     """
-    encoded = os.getenv("GOOGLE_CLIENT_SECRET_JSON_B64", "").strip()
+    encoded = os.getenv(
+        "GOOGLE_CLIENT_SECRET_JSON_B64",
+        "",
+    ).strip()
 
     if encoded:
         try:
-            decoded = base64.b64decode(encoded, validate=True).decode("utf-8")
+            decoded = base64.b64decode(
+                encoded,
+                validate=True,
+            ).decode("utf-8")
             config = json.loads(decoded)
         except Exception as error:
             raise RuntimeError(
                 "GOOGLE_CLIENT_SECRET_JSON_B64 is not valid Base64-encoded "
                 f"Google OAuth client JSON: {error}"
-            )
+            ) from error
 
-        if not isinstance(config, dict) or not isinstance(config.get("web"), dict):
+        if not isinstance(config, dict) or not isinstance(
+            config.get("web"),
+            dict,
+        ):
             raise RuntimeError(
                 'GOOGLE_CLIENT_SECRET_JSON_B64 must contain a "web" section.'
             )
 
         return config
 
-    raw_json = os.getenv("GOOGLE_CLIENT_SECRET_JSON", "").strip()
+    raw_json = os.getenv(
+        "GOOGLE_CLIENT_SECRET_JSON",
+        "",
+    ).strip()
 
     if raw_json:
         try:
@@ -1088,9 +1116,12 @@ def get_google_client_config() -> dict:
         except json.JSONDecodeError as error:
             raise RuntimeError(
                 f"GOOGLE_CLIENT_SECRET_JSON is not valid JSON: {error}"
-            )
+            ) from error
 
-        if not isinstance(config, dict) or not isinstance(config.get("web"), dict):
+        if not isinstance(config, dict) or not isinstance(
+            config.get("web"),
+            dict,
+        ):
             raise RuntimeError(
                 'GOOGLE_CLIENT_SECRET_JSON must contain a "web" section.'
             )
@@ -1100,13 +1131,20 @@ def get_google_client_config() -> dict:
     client_secret_file = find_google_client_secret_file()
 
     try:
-        config = json.loads(client_secret_file.read_text(encoding="utf-8"))
+        config = json.loads(
+            client_secret_file.read_text(
+                encoding="utf-8",
+            )
+        )
     except json.JSONDecodeError as error:
         raise RuntimeError(
             f"Google OAuth client JSON is not valid JSON: {error}"
-        )
+        ) from error
 
-    if not isinstance(config, dict) or not isinstance(config.get("web"), dict):
+    if not isinstance(config, dict) or not isinstance(
+        config.get("web"),
+        dict,
+    ):
         raise RuntimeError(
             'Google OAuth client JSON must contain a "web" section.'
         )
@@ -1127,7 +1165,9 @@ def load_google_credentials() -> Credentials | None:
 
     try:
         data = json.loads(
-            GOOGLE_TOKEN_FILE.read_text(encoding="utf-8")
+            GOOGLE_TOKEN_FILE.read_text(
+                encoding="utf-8",
+            )
         )
 
         credentials = Credentials.from_authorized_user_info(
@@ -1136,7 +1176,9 @@ def load_google_credentials() -> Credentials | None:
         )
 
         if credentials.expired and credentials.refresh_token:
-            credentials.refresh(GoogleAuthRequest())
+            credentials.refresh(
+                GoogleAuthRequest()
+            )
             save_google_credentials(credentials)
 
         if not credentials.valid:
@@ -1145,7 +1187,9 @@ def load_google_credentials() -> Credentials | None:
         return credentials
 
     except Exception as error:
-        print(f"[Google OAuth] Failed to load token: {error}")
+        print(
+            f"[Google OAuth] Failed to load token: {error}"
+        )
         return None
 
 
@@ -1183,25 +1227,29 @@ def get_connected_google_email() -> str | None:
         return None
 
     try:
-        # Gmail API's users.getProfile requires broader Gmail profile scopes
-        # than we need for sending mail. We already request the OpenID/email
-        # scopes, so read the signed-in account from Google's UserInfo endpoint.
         session = AuthorizedSession(credentials)
         response = session.get(
             "https://openidconnect.googleapis.com/v1/userinfo",
             timeout=15,
         )
         response.raise_for_status()
+
         data = response.json()
         email = data.get("email")
 
         if email:
             return email
 
-        print("[Google OAuth] UserInfo response did not contain an email")
+        print(
+            "[Google OAuth] UserInfo response did not contain an email"
+        )
         return None
+
     except Exception as error:
-        print(f"[Google OAuth] Failed to get Google account email: {error}")
+        print(
+            "[Google OAuth] Failed to get Google account email: "
+            f"{error}"
+        )
         return None
 
 
@@ -1216,7 +1264,8 @@ def gmail_send_message(
 
     if not sender:
         raise RuntimeError(
-            "Could not determine the connected Gmail account. Reconnect Gmail."
+            "Could not determine the connected Gmail account. "
+            "Reconnect Gmail."
         )
 
     message = EmailMessage()
@@ -1243,6 +1292,7 @@ def gmail_send_message(
 
 def serialize_email_settings():
     email = get_connected_google_email()
+
     return {
         "configured": bool(email),
         "provider": "gmail",
@@ -1251,8 +1301,6 @@ def serialize_email_settings():
         "auth_url": "/auth/google/start",
     }
 
-
-# =========================================================
 # Hotel Attachment Helpers
 # =========================================================
 
@@ -4804,30 +4852,42 @@ async def create_reservation(
 async def google_auth_start(request: Request):
     try:
         flow = Flow.from_client_config(
-    get_google_client_config(),
-    scopes=GOOGLE_SCOPES,
-    redirect_uri=GOOGLE_REDIRECT_URI,
-)
+            get_google_client_config(),
+            scopes=GOOGLE_SCOPES,
+            redirect_uri=GOOGLE_REDIRECT_URI,
+        )
 
         authorization_url, state = flow.authorization_url(
             access_type="offline",
-            include_granted_scopes="true",
+            include_granted_scopes="false",
             prompt="consent",
         )
 
-        # Store both OAuth state and PKCE code verifier. Google requires the
-        # same verifier when exchanging the authorization code for tokens.
         request.session["google_oauth_state"] = state
-        request.session["google_oauth_code_verifier"] = flow.code_verifier
+        request.session["google_oauth_code_verifier"] = (
+            flow.code_verifier
+        )
         OAUTH_STATES[state] = flow.code_verifier
 
-        print("[Google OAuth] START: state and code verifier saved")
+        print(
+            "[Google OAuth] START: state and code verifier saved"
+        )
 
-        return RedirectResponse(authorization_url, status_code=302)
+        return RedirectResponse(
+            authorization_url,
+            status_code=302,
+        )
 
     except FileNotFoundError as error:
-        raise HTTPException(status_code=500, detail=str(error))
+        raise HTTPException(
+            status_code=500,
+            detail=str(error),
+        )
+
     except Exception as error:
+        print(
+            f"[Google OAuth] Start failed: {error}"
+        )
         raise HTTPException(
             status_code=500,
             detail=f"Could not start Google sign-in: {error}",
@@ -4837,6 +4897,7 @@ async def google_auth_start(request: Request):
 @app.get("/auth/google/callback")
 async def google_auth_callback(request: Request):
     error = request.query_params.get("error")
+
     if error:
         return RedirectResponse(
             f"{FRONTEND_URL}/settings?google=error&message={error}",
@@ -4845,17 +4906,31 @@ async def google_auth_callback(request: Request):
 
     code = request.query_params.get("code")
     state = request.query_params.get("state")
-    saved_state = request.session.pop("google_oauth_state", None)
+
+    saved_state = request.session.pop(
+        "google_oauth_state",
+        None,
+    )
     saved_code_verifier = request.session.pop(
         "google_oauth_code_verifier",
         None,
     )
-    if not saved_state:
-        saved_state = state if state in OAUTH_STATES else None
+
+    if not saved_state and state:
+        saved_state = (
+            state
+            if state in OAUTH_STATES
+            else None
+        )
+
     if not saved_code_verifier and state:
         saved_code_verifier = OAUTH_STATES.get(state)
+
     if state:
-        OAUTH_STATES.pop(state, None)
+        OAUTH_STATES.pop(
+            state,
+            None,
+        )
 
     print(
         "[Google OAuth] CALLBACK: "
@@ -4869,49 +4944,151 @@ async def google_auth_callback(request: Request):
             status_code=302,
         )
 
-    if not state or not saved_state or state != saved_state:
+    if (
+        not state
+        or not saved_state
+        or state != saved_state
+    ):
         print("[Google OAuth] Invalid state")
+
         return RedirectResponse(
             f"{FRONTEND_URL}/settings?google=error&message=invalid_state",
             status_code=302,
         )
 
     if not saved_code_verifier:
-        print("[Google OAuth] Missing PKCE code verifier")
+        print(
+            "[Google OAuth] Missing PKCE code verifier"
+        )
+
         return RedirectResponse(
-            f"{FRONTEND_URL}/settings?google=error&message=missing_code_verifier",
+            f"{FRONTEND_URL}/settings?"
+            "google=error&message=missing_code_verifier",
             status_code=302,
         )
 
     try:
-        flow = Flow.from_client_config(
-    get_google_client_config(),
-    scopes=GOOGLE_SCOPES,
-    state=state,
-    redirect_uri=GOOGLE_REDIRECT_URI,
-)
+        client_config = get_google_client_config()
+        web_config = client_config["web"]
 
-        print("[Google OAuth] FETCH TOKEN START")
-        flow.fetch_token(
-            code=code,
-            code_verifier=saved_code_verifier,
+        token_uri = web_config.get(
+            "token_uri",
+            "https://oauth2.googleapis.com/token",
         )
-        print("[Google OAuth] FETCH TOKEN SUCCESS")
 
-        save_google_credentials(flow.credentials)
+        token_payload = {
+            "code": code,
+            "client_id": web_config["client_id"],
+            "client_secret": web_config["client_secret"],
+            "redirect_uri": GOOGLE_REDIRECT_URI,
+            "grant_type": "authorization_code",
+            "code_verifier": saved_code_verifier,
+        }
+
+        print(
+            "[Google OAuth] FETCH TOKEN START"
+        )
+
+        token_response = requests.post(
+            token_uri,
+            data=token_payload,
+            timeout=20,
+        )
+
+        if not token_response.ok:
+            detail = token_response.text[:1000]
+            raise RuntimeError(
+                "Google token exchange failed "
+                f"({token_response.status_code}): {detail}"
+            )
+
+        token_data = token_response.json()
+
+        access_token = token_data.get(
+            "access_token"
+        )
+        refresh_token = token_data.get(
+            "refresh_token"
+        )
+        granted_scope_string = token_data.get(
+            "scope",
+            "",
+        )
+
+        if not access_token:
+            raise RuntimeError(
+                "Google token response did not contain an access_token."
+            )
+
+        if not refresh_token:
+            raise RuntimeError(
+                "Google did not return a refresh_token. "
+                "Reconnect Gmail with consent."
+            )
+
+        granted_scopes = (
+            granted_scope_string.split()
+            if granted_scope_string
+            else list(GOOGLE_SCOPES)
+        )
+
+        if (
+            "https://www.googleapis.com/auth/gmail.send"
+            not in granted_scopes
+        ):
+            raise RuntimeError(
+                "Google did not grant the Gmail send permission."
+            )
+
+        expires_in = token_data.get("expires_in")
+        expiry = None
+
+        if expires_in is not None:
+            expiry = (
+                datetime.now(timezone.utc)
+                + timedelta(
+                    seconds=int(expires_in)
+                )
+            )
+
+        credentials = Credentials(
+            token=access_token,
+            refresh_token=refresh_token,
+            token_uri=token_uri,
+            client_id=web_config["client_id"],
+            client_secret=web_config["client_secret"],
+            scopes=granted_scopes,
+            expiry=expiry,
+        )
+
+        if token_data.get("id_token"):
+            credentials.id_token = token_data["id_token"]
+
+        print(
+            "[Google OAuth] FETCH TOKEN SUCCESS"
+        )
+
+        save_google_credentials(
+            credentials
+        )
+
         print(
             "[Google OAuth] TOKEN SAVED =",
             GOOGLE_TOKEN_FILE.exists(),
             "SIZE =",
-            GOOGLE_TOKEN_FILE.stat().st_size
-            if GOOGLE_TOKEN_FILE.exists()
-            else 0,
+            (
+                GOOGLE_TOKEN_FILE.stat().st_size
+                if GOOGLE_TOKEN_FILE.exists()
+                else 0
+            ),
         )
 
         email = get_connected_google_email()
+
         if not email:
             raise RuntimeError(
-                "Google is connected, but the Gmail address could not be read."
+                "Google is connected, but the Gmail address "
+                "could not be read."
             )
 
         return RedirectResponse(
@@ -4920,7 +5097,10 @@ async def google_auth_callback(request: Request):
         )
 
     except Exception as error:
-        print(f"[Google OAuth] Callback failed: {error}")
+        print(
+            f"[Google OAuth] Callback failed: {error}"
+        )
+
         return RedirectResponse(
             f"{FRONTEND_URL}/settings?google=error",
             status_code=302,
