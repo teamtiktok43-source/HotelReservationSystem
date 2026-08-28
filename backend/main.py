@@ -15,6 +15,7 @@ import os
 import secrets
 from pathlib import Path
 import bcrypt
+import hmac
 
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
@@ -403,6 +404,7 @@ def _is_public_path(path: str) -> bool:
     return (
         path == "/"
         or path == "/login"
+        or path == "/bootstrap/reset-it-password"
         or path.startswith("/auth/google/")
         or path.startswith("/uploads/")
     )
@@ -587,6 +589,11 @@ app.mount(
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class TemporaryITPasswordResetRequest(BaseModel):
+    new_password: str
+
 
 
 # =========================================================
@@ -6255,6 +6262,85 @@ async def login(
 
 
 # =========================================================
+# =========================================================
+# TEMPORARY IT PASSWORD RESET
+# =========================================================
+# IMPORTANT:
+# This endpoint is intentionally temporary.
+# Remove this endpoint, its request model, the public-path entry,
+# and RESET_ADMIN_SECRET after the production password is reset.
+
+@app.post("/bootstrap/reset-it-password")
+async def reset_it_password(
+    request: Request,
+    data: TemporaryITPasswordResetRequest,
+):
+    configured_secret = os.getenv("RESET_ADMIN_SECRET")
+
+    if not configured_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="Temporary reset endpoint is not configured",
+        )
+
+    provided_secret = request.headers.get("X-Reset-Secret", "")
+
+    if not provided_secret or not hmac.compare_digest(
+        provided_secret,
+        configured_secret,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid reset secret",
+        )
+
+    new_password = data.new_password
+
+    if len(new_password) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail="Password must be at least 8 characters",
+        )
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(User).where(
+                User.username == "Mostafa Aamer"
+            )
+        )
+
+        user = result.scalar_one_or_none()
+
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail="IT user not found",
+            )
+
+        normalized_role = normalize_role(user.role)
+
+        if normalized_role != ROLE_IT:
+            raise HTTPException(
+                status_code=409,
+                detail="Target user is not an IT user",
+            )
+
+        user.password_hash = bcrypt.hashpw(
+            new_password.encode("utf-8"),
+            bcrypt.gensalt(),
+        ).decode("utf-8")
+
+        user.is_active = True
+
+        await session.commit()
+
+    return {
+        "success": True,
+        "message": "IT password reset successfully",
+        "username": "Mostafa Aamer",
+    }
+
+
 # Current Session
 # =========================================================
 
