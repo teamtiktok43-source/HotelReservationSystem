@@ -371,6 +371,12 @@ export default function NewReservationPage() {
   const [hotelId, setHotelId] =
     useState("");
 
+  const [hotelSearch, setHotelSearch] =
+    useState("");
+
+  const [hotelDropdownOpen, setHotelDropdownOpen] =
+    useState(false);
+
   const [guestName, setGuestName] =
     useState("");
 
@@ -832,6 +838,18 @@ setRatePlans(
       (hotel) =>
         hotel.id === Number(hotelId)
     ) || null;
+
+  const normalizedHotelSearch =
+    hotelSearch.trim().toLowerCase();
+
+  const filteredHotels =
+    normalizedHotelSearch
+      ? hotels.filter((hotel) =>
+          hotel.name
+            .toLowerCase()
+            .includes(normalizedHotelSearch)
+        )
+      : hotels;
 
   // =====================================================
   // Date Handlers
@@ -1340,6 +1358,8 @@ setEmailMessage(
     setBookingNumber("");
 
     setHotelId("");
+    setHotelSearch("");
+    setHotelDropdownOpen(false);
 
     setGuestName("");
 
@@ -1456,50 +1476,75 @@ setEmailMessage(
                 hint={
                   selectedHotel?.email
                     ? `✉ ${selectedHotel.email}`
-                    : undefined
+                    : "Type part of the hotel name or click to browse"
                 }
               >
-                <select
-                  value={hotelId}
-                  onChange={(e) =>
-                    setHotelId(
-                      e.target.value
-                    )
-                  }
-                  disabled={
-                    loadingHotels
-                  }
-                  className={
-                    inputClass
-                  }
-                >
-                  <option value=""
-                        className="bg-white text-slate-900"
-                      >
-                    {loadingHotels
-                      ? "Loading hotels..."
-                      : "Select hotel"}
-                  </option>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={
+                      hotelSearch ||
+                      selectedHotel?.name ||
+                      ""
+                    }
+                    onFocus={() => {
+                      if (selectedHotel && !hotelSearch) {
+                        setHotelSearch("");
+                      }
+                      setHotelDropdownOpen(true);
+                    }}
+                    onChange={(e) => {
+                      const value = e.target.value;
 
-                  {hotels.map(
-                    (hotel) => (
-                      <option
-                        key={
-                          hotel.id
-                        }
-                        value={
-                          hotel.id
-                        }
-                      
-                        className="bg-white text-slate-900"
-                      >
-                        {
-                          hotel.name
-                        }
-                      </option>
-                    )
+                      setHotelSearch(value);
+                      setHotelId("");
+                      setHotelDropdownOpen(true);
+                    }}
+                    onBlur={() => {
+                      window.setTimeout(() => {
+                        setHotelDropdownOpen(false);
+                      }, 150);
+                    }}
+                    placeholder={
+                      loadingHotels
+                        ? "Loading hotels..."
+                        : "Search or select hotel..."
+                    }
+                    disabled={loadingHotels}
+                    className={inputClass}
+                    autoComplete="off"
+                  />
+
+                  {hotelDropdownOpen && !loadingHotels && (
+                    <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-60 overflow-y-auto rounded-xl border border-slate-700 bg-[#0b1220] shadow-2xl">
+                      {filteredHotels.length > 0 ? (
+                        filteredHotels.map((hotel) => (
+                          <button
+                            key={hotel.id}
+                            type="button"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setHotelId(String(hotel.id));
+                              setHotelSearch("");
+                              setHotelDropdownOpen(false);
+                            }}
+                            className={`block w-full px-4 py-3 text-left text-sm transition hover:bg-slate-800 ${
+                              hotel.id === Number(hotelId)
+                                ? "bg-blue-500/10 text-blue-300"
+                                : "text-slate-200"
+                            }`}
+                          >
+                            {hotel.name}
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-4 py-3 text-sm text-slate-500">
+                          No hotel found for "{hotelSearch}"
+                        </div>
+                      )}
+                    </div>
                   )}
-                </select>
+                </div>
 
                 {selectedHotel &&
                   !selectedHotel.email && (
