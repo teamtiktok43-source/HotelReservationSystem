@@ -267,11 +267,21 @@ export default function Dashboard() {
         .json()
         .catch(() => null);
 
+      // A protected Dashboard must never remain visible when there is
+      // no valid authenticated session. Redirect only for an actual
+      // authentication failure (401/403), while keeping temporary
+      // network/server errors visible instead of logging the user out.
+      if (response.status === 401 || response.status === 403) {
+        localStorage.removeItem("hotel_user");
+        window.location.replace("/");
+        return;
+      }
+
       if (!response.ok || !data?.user) {
         throw new Error(
           typeof data?.detail === "string"
             ? data.detail
-            : "Your login session has expired. Please sign in again."
+            : "Could not verify your login session."
         );
       }
 
@@ -366,14 +376,38 @@ export default function Dashboard() {
   );
 
   useEffect(() => {
-    void loadCurrentUser();
-    void loadReservations();
+    let cancelled = false;
+
+    const checkAuthenticationAndLoad = async () => {
+      // Verify the session first. If it is invalid, loadCurrentUser()
+      // redirects to the sign-in page and we do not request protected data.
+      await loadCurrentUser();
+
+      if (cancelled) {
+        return;
+      }
+
+      // currentUser is updated asynchronously, so do not rely on it here.
+      // The auth request itself is the gate for the first data request.
+      void loadReservations();
+    };
+
+    void checkAuthenticationAndLoad();
 
     const interval =
       window.setInterval(() => {
         void loadCurrentUser();
         void loadReservations(true);
       }, 30000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [
+    loadCurrentUser,
+    loadReservations,
+  ]);
 
     return () => {
       window.clearInterval(interval);
