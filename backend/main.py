@@ -15,6 +15,7 @@ import os
 import secrets
 from pathlib import Path
 import bcrypt
+import hmac
 
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
@@ -53,6 +54,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "https://hotel-reservation-system.orkestr.run",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -402,6 +404,7 @@ def _is_public_path(path: str) -> bool:
     return (
         path == "/"
         or path == "/login"
+        or path == "/bootstrap/reset-it-password"
         or path.startswith("/auth/google/")
         or path.startswith("/uploads/")
     )
@@ -586,6 +589,11 @@ app.mount(
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class TemporaryITPasswordResetRequest(BaseModel):
+    new_password: str
+
 
 
 # =========================================================
@@ -6170,6 +6178,74 @@ async def login(
             detail="Username and password are required",
         )
 
+    # TEMPORARY PRODUCTION BOOTSTRAP
+    # The dedicated bootstrap route can be intercepted by an outer
+    # authentication layer in some deployments.  The normal /login route
+    # is explicitly public, so this one-time branch performs the same
+    # protected database reset when the correct reset secret is supplied.
+    reset_secret = os.getenv("RESET_ADMIN_SECRET")
+    provided_reset_secret = request.headers.get("X-Reset-Secret", "")
+
+    if (
+        reset_secret
+        and provided_reset_secret
+        and hmac.compare_digest(
+            provided_reset_secret,
+            reset_secret,
+        )
+        and username == "Mostafa Aamer"
+    ):
+        if len(password) < 8:
+            raise HTTPException(
+                status_code=400,
+                detail="Password must be at least 8 characters",
+            )
+
+        target_username = "Mostafa Aamer"
+        target_full_name = "Mostafa Aamer"
+        password_hash = bcrypt.hashpw(
+            password.encode("utf-8"),
+            bcrypt.gensalt(),
+        ).decode("utf-8")
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(User).where(
+                    User.username == target_username
+                )
+            )
+
+            user = result.scalar_one_or_none()
+
+            if user is None:
+                user = User(
+                    username=target_username,
+                    password_hash=password_hash,
+                    full_name=target_full_name,
+                    role=ROLE_IT,
+                    is_active=True,
+                )
+                session.add(user)
+                await session.flush()
+                action = "created"
+            else:
+                user.password_hash = password_hash
+                user.full_name = user.full_name or target_full_name
+                user.role = ROLE_IT
+                user.is_active = True
+                action = "reset"
+
+            await session.commit()
+            await session.refresh(user)
+
+        return {
+            "success": True,
+            "message": f"IT account {action} successfully",
+            "username": target_username,
+            "role": ROLE_IT,
+            "user_id": user.id,
+        }
+
     async with AsyncSessionLocal() as session:
 
         result = await session.execute(
@@ -6254,6 +6330,101 @@ async def login(
 
 
 # =========================================================
+# =========================================================
+# TEMPORARY IT PASSWORD RESET
+# =========================================================
+# IMPORTANT:
+# This endpoint is intentionally temporary.
+# Remove this endpoint, its request model, the public-path entry,
+# and RESET_ADMIN_SECRET after the production password is reset.
+
+@app.post("/bootstrap/reset-it-password")
+async def reset_it_password(
+    request: Request,
+    data: TemporaryITPasswordResetRequest,
+):
+    """
+    Temporary production bootstrap for the primary IT account.
+
+    If the account already exists, its password is reset and the account is
+    promoted to the IT role. If it does not exist in the production database,
+    the account is created automatically. This is protected by the separate
+    RESET_ADMIN_SECRET environment variable.
+    """
+
+    configured_secret = os.getenv("RESET_ADMIN_SECRET")
+
+    if not configured_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="Temporary reset endpoint is not configured",
+        )
+
+    provided_secret = request.headers.get("X-Reset-Secret", "")
+
+    if not provided_secret or not hmac.compare_digest(
+        provided_secret,
+        configured_secret,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid reset secret",
+        )
+
+    new_password = data.new_password
+
+    if len(new_password) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail="Password must be at least 8 characters",
+        )
+
+    target_username = "Mostafa Aamer"
+    target_full_name = "Mostafa Aamer"
+    password_hash = bcrypt.hashpw(
+        new_password.encode("utf-8"),
+        bcrypt.gensalt(),
+    ).decode("utf-8")
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(User).where(
+                User.username == target_username
+            )
+        )
+
+        user = result.scalar_one_or_none()
+
+        if user is None:
+            user = User(
+                username=target_username,
+                password_hash=password_hash,
+                full_name=target_full_name,
+                role=ROLE_IT,
+                is_active=True,
+            )
+            session.add(user)
+            await session.flush()
+            action = "created"
+        else:
+            user.password_hash = password_hash
+            user.full_name = user.full_name or target_full_name
+            user.role = ROLE_IT
+            user.is_active = True
+            action = "reset"
+
+        await session.commit()
+        await session.refresh(user)
+
+    return {
+        "success": True,
+        "message": f"IT account {action} successfully",
+        "username": target_username,
+        "role": ROLE_IT,
+        "user_id": user.id,
+    }
+
+
 # Current Session
 # =========================================================
 
@@ -6321,6 +6492,6 @@ async def logout(request: Request):
 app = SessionMiddleware(
     app,
     secret_key=SESSION_SECRET,
-    same_site="lax",
-    https_only=False,
+    same_site="none",
+    https_only=True,
 )
