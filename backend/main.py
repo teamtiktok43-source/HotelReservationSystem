@@ -1050,19 +1050,68 @@ GOOGLE_SCOPES = [
 GOOGLE_TOKEN_FILE = BASE_DIR / "google_token.json"
 
 
-def find_google_client_secret_file() -> Path:
-    candidates = sorted(
-        BASE_DIR.glob("client_secret*.json"),
-        key=lambda item: item.stat().st_mtime,
-        reverse=True,
-    )
+def get_google_client_config() -> dict:
+    """
+    Load the Google OAuth Web Client configuration.
 
-    if not candidates:
-        raise FileNotFoundError(
-            "Google OAuth client JSON was not found in the backend folder."
+    Production can use GOOGLE_CLIENT_SECRET_JSON_B64 so multiline JSON is
+    preserved safely by the hosting panel.
+
+    GOOGLE_CLIENT_SECRET_JSON is supported as a plain JSON environment
+    variable, and a local client_secret*.json file is kept as a fallback
+    for local development.
+    """
+    encoded = os.getenv("GOOGLE_CLIENT_SECRET_JSON_B64", "").strip()
+
+    if encoded:
+        try:
+            decoded = base64.b64decode(encoded, validate=True).decode("utf-8")
+            config = json.loads(decoded)
+        except Exception as error:
+            raise RuntimeError(
+                "GOOGLE_CLIENT_SECRET_JSON_B64 is not valid Base64-encoded "
+                f"Google OAuth client JSON: {error}"
+            )
+
+        if not isinstance(config, dict) or not isinstance(config.get("web"), dict):
+            raise RuntimeError(
+                'GOOGLE_CLIENT_SECRET_JSON_B64 must contain a "web" section.'
+            )
+
+        return config
+
+    raw_json = os.getenv("GOOGLE_CLIENT_SECRET_JSON", "").strip()
+
+    if raw_json:
+        try:
+            config = json.loads(raw_json)
+        except json.JSONDecodeError as error:
+            raise RuntimeError(
+                f"GOOGLE_CLIENT_SECRET_JSON is not valid JSON: {error}"
+            )
+
+        if not isinstance(config, dict) or not isinstance(config.get("web"), dict):
+            raise RuntimeError(
+                'GOOGLE_CLIENT_SECRET_JSON must contain a "web" section.'
+            )
+
+        return config
+
+    client_secret_file = find_google_client_secret_file()
+
+    try:
+        config = json.loads(client_secret_file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise RuntimeError(
+            f"Google OAuth client JSON is not valid JSON: {error}"
         )
 
-    return candidates[0]
+    if not isinstance(config, dict) or not isinstance(config.get("web"), dict):
+        raise RuntimeError(
+            'Google OAuth client JSON must contain a "web" section.'
+        )
+
+    return config
 
 
 def save_google_credentials(credentials: Credentials) -> None:
@@ -4754,12 +4803,11 @@ async def create_reservation(
 @app.get("/auth/google/start")
 async def google_auth_start(request: Request):
     try:
-        client_secret_file = find_google_client_secret_file()
-        flow = Flow.from_client_secrets_file(
-            str(client_secret_file),
-            scopes=GOOGLE_SCOPES,
-            redirect_uri=GOOGLE_REDIRECT_URI,
-        )
+        flow = Flow.from_client_config(
+    get_google_client_config(),
+    scopes=GOOGLE_SCOPES,
+    redirect_uri=GOOGLE_REDIRECT_URI,
+)
 
         authorization_url, state = flow.authorization_url(
             access_type="offline",
@@ -4836,13 +4884,12 @@ async def google_auth_callback(request: Request):
         )
 
     try:
-        client_secret_file = find_google_client_secret_file()
-        flow = Flow.from_client_secrets_file(
-            str(client_secret_file),
-            scopes=GOOGLE_SCOPES,
-            state=state,
-            redirect_uri=GOOGLE_REDIRECT_URI,
-        )
+        flow = Flow.from_client_config(
+    get_google_client_config(),
+    scopes=GOOGLE_SCOPES,
+    state=state,
+    redirect_uri=GOOGLE_REDIRECT_URI,
+)
 
         print("[Google OAuth] FETCH TOKEN START")
         flow.fetch_token(
