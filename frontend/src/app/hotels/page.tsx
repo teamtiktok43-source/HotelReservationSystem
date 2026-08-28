@@ -186,13 +186,31 @@ export default function HotelsPage() {
 
       const formData = new FormData();
       files.forEach((file) => {
-        formData.append("files", file);
+        formData.append("files", file, file.name);
       });
 
-      await apiPost(
-        `/hotels/${hotelId}/attachments`,
-        formData
+      // Send multipart/form-data directly so the browser can set
+      // the correct boundary automatically. Also include the active
+      // session cookie for the protected backend endpoint.
+      const response = await fetch(
+        `${API_BASE_URL}/hotels/${hotelId}/attachments`,
+        {
+          method: "POST",
+          body: formData,
+          credentials: "include",
+          cache: "no-store",
+        }
       );
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(
+          typeof data?.detail === "string"
+            ? data.detail
+            : `Failed to upload hotel files (${response.status})`
+        );
+      }
 
       setMessage({
         type: "success",
@@ -208,6 +226,9 @@ export default function HotelsPage() {
             ? error.message
             : "An error occurred while uploading hotel files.",
       });
+
+      // Do not let the hotel form close/reset when the file upload failed.
+      throw error;
     } finally {
       setUploadingFiles(false);
     }
