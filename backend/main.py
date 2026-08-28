@@ -1159,8 +1159,86 @@ GOOGLE_SCOPES = [
 
 GOOGLE_TOKEN_FILE = BASE_DIR / "google_token.json"
 
+# Production OAuth configuration. The client JSON is kept out of Git and is
+# supplied through the deployment environment instead.
+GOOGLE_CLIENT_SECRET_JSON = os.getenv("GOOGLE_CLIENT_SECRET_JSON", "").strip()
 
-def find_google_client_secret_file() -> Path:
+# Optional alternative to GOOGLE_CLIENT_SECRET_JSON.
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+
+
+def get_google_client_config() -> dict:
+    """Return the Google OAuth client configuration.
+
+    Production priority:
+      1. GOOGLE_CLIENT_SECRET_JSON (complete downloaded client JSON)
+      2. GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET
+
+    Local development fallback:
+      client_secret*.json inside the backend directory.
+    """
+
+    if GOOGLE_CLIENT_SECRET_JSON:
+        try:
+            config = json.loads(GOOGLE_CLIENT_SECRET_JSON)
+        except json.JSONDecodeError as error:
+            raise RuntimeError(
+                f"GOOGLE_CLIENT_SECRET_JSON is not valid JSON: {error}"
+            ) from error
+
+        if isinstance(config.get("web"), dict):
+            client_config = config["web"]
+        elif isinstance(config.get("installed"), dict):
+            client_config = config["installed"]
+        else:
+            client_config = config
+
+        if not client_config.get("client_id"):
+            raise RuntimeError(
+                "GOOGLE_CLIENT_SECRET_JSON does not contain client_id."
+            )
+        if not client_config.get("client_secret"):
+            raise RuntimeError(
+                "GOOGLE_CLIENT_SECRET_JSON does not contain client_secret."
+            )
+
+        return {
+            "web": {
+                "client_id": client_config["client_id"],
+                "client_secret": client_config["client_secret"],
+                "auth_uri": client_config.get(
+                    "auth_uri",
+                    "https://accounts.google.com/o/oauth2/auth",
+                ),
+                "token_uri": client_config.get(
+                    "token_uri",
+                    "https://oauth2.googleapis.com/token",
+                ),
+                "auth_provider_x509_cert_url": client_config.get(
+                    "auth_provider_x509_cert_url",
+                    "https://www.googleapis.com/oauth2/v1/certs",
+                ),
+                "redirect_uris": client_config.get(
+                    "redirect_uris",
+                    [GOOGLE_REDIRECT_URI],
+                ),
+            }
+        }
+
+    if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
+        return {
+            "web": {
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url":
+                    "https://www.googleapis.com/oauth2/v1/certs",
+                "redirect_uris": [GOOGLE_REDIRECT_URI],
+            }
+        }
+
     candidates = sorted(
         BASE_DIR.glob("client_secret*.json"),
         key=lambda item: item.stat().st_mtime,
@@ -1169,10 +1247,31 @@ def find_google_client_secret_file() -> Path:
 
     if not candidates:
         raise FileNotFoundError(
-            "Google OAuth client JSON was not found in the backend folder."
+            "Google OAuth configuration is missing. Set "
+            "GOOGLE_CLIENT_SECRET_JSON in production or place "
+            "client_secret*.json in the backend folder for local development."
         )
 
-    return candidates[0]
+    try:
+        data = json.loads(candidates[0].read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(
+            f"Could not read Google OAuth client configuration: {error}"
+        ) from error
+
+    if isinstance(data.get("web"), dict) or isinstance(data.get("installed"), dict):
+        return data
+
+    return {"web": data}
+
+
+def create_google_oauth_flow(state: str | None = None) -> Flow:
+    return Flow.from_client_config(
+        get_google_client_config(),
+        scopes=GOOGLE_SCOPES,
+        state=state,
+        redirect_uri=GOOGLE_REDIRECT_URI,
+    )
 
 
 def save_google_credentials(credentials: Credentials) -> None:
@@ -4871,12 +4970,7 @@ async def create_reservation(
 @app.get("/auth/google/start")
 async def google_auth_start(request: Request):
     try:
-        client_secret_file = find_google_client_secret_file()
-        flow = Flow.from_client_secrets_file(
-            str(client_secret_file),
-            scopes=GOOGLE_SCOPES,
-            redirect_uri=GOOGLE_REDIRECT_URI,
-        )
+        flow = create_google_oauth_flow()
 
         authorization_url, state = flow.authorization_url(
             access_type="offline",
@@ -4953,13 +5047,7 @@ async def google_auth_callback(request: Request):
         )
 
     try:
-        client_secret_file = find_google_client_secret_file()
-        flow = Flow.from_client_secrets_file(
-            str(client_secret_file),
-            scopes=GOOGLE_SCOPES,
-            state=state,
-            redirect_uri=GOOGLE_REDIRECT_URI,
-        )
+        flow = create_google_oauth_flow(state=state)
 
         print("[Google OAuth] FETCH TOKEN START")
         flow.fetch_token(
