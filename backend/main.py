@@ -5061,9 +5061,6 @@ async def google_auth_callback(request: Request):
             expiry=expiry,
         )
 
-        if token_data.get("id_token"):
-            credentials.id_token = token_data["id_token"]
-
         print(
             "[Google OAuth] FETCH TOKEN SUCCESS"
         )
