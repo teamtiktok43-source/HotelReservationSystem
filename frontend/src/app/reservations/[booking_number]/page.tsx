@@ -212,6 +212,7 @@ export default function ReservationDetailsPage() {
         )}`,
         {
           method: "GET",
+          credentials: "include",
           cache: "no-store",
         }
       );
@@ -259,6 +260,7 @@ export default function ReservationDetailsPage() {
         )}/status`,
         {
           method: "PATCH",
+          credentials: "include",
           headers: {
             "Content-Type": "application/json",
           },
@@ -316,6 +318,7 @@ export default function ReservationDetailsPage() {
         )}/send-email`,
         {
           method: "POST",
+          credentials: "include",
           headers: {
             "Content-Type": "application/json",
           },
@@ -367,6 +370,7 @@ export default function ReservationDetailsPage() {
         )}/hotel-confirmation`,
         {
           method: "PATCH",
+          credentials: "include",
           headers: {
             "Content-Type": "application/json",
           },
