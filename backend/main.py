@@ -1159,34 +1159,84 @@ GOOGLE_SCOPES = [
 
 GOOGLE_TOKEN_FILE = BASE_DIR / "google_token.json"
 
-# Production OAuth configuration. The client JSON is kept out of Git and is
-# supplied through the deployment environment instead.
-GOOGLE_CLIENT_SECRET_JSON = os.getenv("GOOGLE_CLIENT_SECRET_JSON", "").strip()
+# Production OAuth configuration.
+#
+# IMPORTANT:
+# The Google client-secret JSON file must NOT be committed to Git.
+# In production (Orkestr), provide it through an environment variable.
+#
+# Supported production methods:
+#   1. GOOGLE_CLIENT_SECRET_JSON       = complete downloaded JSON
+#   2. GOOGLE_CLIENT_SECRET_JSON_B64   = same JSON encoded as Base64
+#   3. GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET
+#
+# Local development fallback:
+#   client_secret*.json inside the backend directory.
+GOOGLE_CLIENT_SECRET_JSON = os.getenv(
+    "GOOGLE_CLIENT_SECRET_JSON",
+    "",
+).strip()
 
-# Optional alternative to GOOGLE_CLIENT_SECRET_JSON.
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
-GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+GOOGLE_CLIENT_SECRET_JSON_B64 = os.getenv(
+    "GOOGLE_CLIENT_SECRET_JSON_B64",
+    "",
+).strip()
+
+GOOGLE_CLIENT_ID = os.getenv(
+    "GOOGLE_CLIENT_ID",
+    "",
+).strip()
+
+GOOGLE_CLIENT_SECRET = os.getenv(
+    "GOOGLE_CLIENT_SECRET",
+    "",
+).strip()
+
+
+def _load_google_client_json() -> dict | None:
+    """Load Google OAuth JSON from production environment variables."""
+
+    if GOOGLE_CLIENT_SECRET_JSON:
+        try:
+            return json.loads(GOOGLE_CLIENT_SECRET_JSON)
+        except json.JSONDecodeError as error:
+            raise RuntimeError(
+                "GOOGLE_CLIENT_SECRET_JSON is not valid JSON. "
+                "If your hosting panel does not preserve multiline JSON, "
+                "use GOOGLE_CLIENT_SECRET_JSON_B64 instead."
+            ) from error
+
+    if GOOGLE_CLIENT_SECRET_JSON_B64:
+        try:
+            decoded = base64.b64decode(
+                GOOGLE_CLIENT_SECRET_JSON_B64,
+                validate=True,
+            ).decode("utf-8")
+            return json.loads(decoded)
+        except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise RuntimeError(
+                "GOOGLE_CLIENT_SECRET_JSON_B64 is not a valid Base64-encoded "
+                "Google OAuth client JSON."
+            ) from error
+
+    return None
 
 
 def get_google_client_config() -> dict:
     """Return the Google OAuth client configuration.
 
     Production priority:
-      1. GOOGLE_CLIENT_SECRET_JSON (complete downloaded client JSON)
-      2. GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET
+      1. GOOGLE_CLIENT_SECRET_JSON
+      2. GOOGLE_CLIENT_SECRET_JSON_B64
+      3. GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET
 
     Local development fallback:
       client_secret*.json inside the backend directory.
     """
 
-    if GOOGLE_CLIENT_SECRET_JSON:
-        try:
-            config = json.loads(GOOGLE_CLIENT_SECRET_JSON)
-        except json.JSONDecodeError as error:
-            raise RuntimeError(
-                f"GOOGLE_CLIENT_SECRET_JSON is not valid JSON: {error}"
-            ) from error
+    config = _load_google_client_json()
 
+    if config is not None:
         if isinstance(config.get("web"), dict):
             client_config = config["web"]
         elif isinstance(config.get("installed"), dict):
@@ -1196,11 +1246,12 @@ def get_google_client_config() -> dict:
 
         if not client_config.get("client_id"):
             raise RuntimeError(
-                "GOOGLE_CLIENT_SECRET_JSON does not contain client_id."
+                "Google OAuth configuration does not contain client_id."
             )
+
         if not client_config.get("client_secret"):
             raise RuntimeError(
-                "GOOGLE_CLIENT_SECRET_JSON does not contain client_secret."
+                "Google OAuth configuration does not contain client_secret."
             )
 
         return {
@@ -1248,8 +1299,9 @@ def get_google_client_config() -> dict:
     if not candidates:
         raise FileNotFoundError(
             "Google OAuth configuration is missing. Set "
-            "GOOGLE_CLIENT_SECRET_JSON in production or place "
-            "client_secret*.json in the backend folder for local development."
+            "GOOGLE_CLIENT_SECRET_JSON or GOOGLE_CLIENT_SECRET_JSON_B64 "
+            "in production, or place client_secret*.json in the backend "
+            "folder for local development."
         )
 
     try:
