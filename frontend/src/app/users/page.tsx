@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { apiDelete, apiGet, apiPatch, apiPost } from "../lib/api";
+import { apiDelete, apiPatch, apiPost, getUsers, ManagedUser } from "../lib/api";
+
+
 
 type User = {
   id: number;
@@ -11,6 +13,10 @@ type User = {
   role: string | null;
   is_active: boolean;
   created_at?: string | null;
+  last_login_at?: string | null;
+  last_activity_at?: string | null;
+  active_sessions: number;
+  online: boolean;
 };
 
 type UserForm = {
@@ -26,33 +32,11 @@ type Message = {
   text: string;
 };
 
-const ROLE_OPTIONS = [
-  "Manager",
-  "IT",
-  "Reservation Employee",
-] as const;
-
-type SystemRole = (typeof ROLE_OPTIONS)[number];
-
-function normalizeRole(role?: string | null): SystemRole {
-  const value = (role || "").trim().toLowerCase();
-
-  if (value === "it") return "IT";
-  if (
-    value === "reservation employee" ||
-    value === "reservation_employee"
-  ) {
-    return "Reservation Employee";
-  }
-
-  return "Manager";
-}
-
 const emptyForm: UserForm = {
   username: "",
   password: "",
   full_name: "",
-  role: "Manager",
+  role: "Administrator",
   is_active: true,
 };
 
@@ -93,12 +77,7 @@ export default function UsersPage() {
 
       setMessage(null);
 
-      const data = await apiGet<User[]>("/users");
-
-      if (!Array.isArray(data)) {
-        throw new Error("Invalid users response from the backend.");
-      }
-
+      const data = await getUsers();
       setUsers(data);
     } catch (error) {
       setMessage({
@@ -134,10 +113,26 @@ export default function UsersPage() {
     }
 
     return users.filter((user) => {
-      return (
+      async function forceLogout(user: User) {
+    if (user.active_sessions <= 0) {
+      setMessage({ type: "error", text: "This user has no active sessions." });
+      return;
+    }
+    const confirmed = window.confirm(`Force logout ${user.username} from all active devices?`);
+    if (!confirmed) return;
+    try {
+      const data = await apiPost<{ success: boolean; message: string }>(`/users/${user.id}/force-logout`);
+      setMessage({ type: "success", text: data.message });
+      await loadUsers(true);
+    } catch (error) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "Could not force logout the user." });
+    }
+  }
+
+  return (
         user.username?.toLowerCase().includes(value) ||
         user.full_name?.toLowerCase().includes(value) ||
-        normalizeRole(user.role).toLowerCase().includes(value)
+        user.role?.toLowerCase().includes(value)
       );
     });
   }, [users, search]);
@@ -145,13 +140,17 @@ export default function UsersPage() {
   const stats = useMemo(() => {
     const active = users.filter((user) => user.is_active).length;
     const inactive = users.length - active;
+    const online = users.filter((user) => user.online).length;
 
     return {
       total: users.length,
       active,
       inactive,
-      managers: users.filter(
-        (user) => normalizeRole(user.role) === "Manager"
+      online,
+      admins: users.filter(
+        (user) =>
+          (user.role || "").toLowerCase() ===
+          "administrator"
       ).length,
     };
   }, [users]);
@@ -170,7 +169,7 @@ export default function UsersPage() {
       username: user.username || "",
       password: "",
       full_name: user.full_name || "",
-      role: normalizeRole(user.role),
+      role: user.role || "User",
       is_active: user.is_active,
     });
 
@@ -227,26 +226,19 @@ export default function UsersPage() {
       }
 
       const data = editingUser
-        ? await apiPatch<{ message?: string }>(
+        ? await apiPatch<{ success: boolean; message: string; user: User }>(
             `/users/${editingUser.id}`,
             payload
           )
-        : await apiPost<{ message?: string }>(
+        : await apiPost<{ success: boolean; message: string; user: User }>(
             "/users",
             payload
           );
 
-      setMessage({
-        type: "success",
-        text: editingUser
-          ? "User updated successfully."
-          : "User added successfully.",
-      });
-
+      setMessage({ type: "success", text: data.message || (editingUser ? "User updated successfully." : "User added successfully.") });
       setModalOpen(false);
       setEditingUser(null);
       setForm(emptyForm);
-
       await loadUsers(true);
     } catch (error) {
       setMessage({
@@ -265,20 +257,12 @@ export default function UsersPage() {
     try {
       setMessage(null);
 
-      await apiPatch(
+      const data = await apiPatch<{ success: boolean; message: string; user: User }>(
         `/users/${user.id}/status`,
-        {
-          is_active: !user.is_active,
-        }
+        { is_active: !user.is_active }
       );
 
-      setMessage({
-        type: "success",
-        text: user.is_active
-          ? `User ${user.username} disabled.`
-          : `User ${user.username} enabled.`,
-      });
-
+      setMessage({ type: "success", text: data.message });
       await loadUsers(true);
     } catch (error) {
       setMessage({
@@ -294,14 +278,14 @@ export default function UsersPage() {
   return (
     <main
       dir="ltr"
-      className="min-h-screen bg-[#0B1116] text-[#F3F7F9]"
+      className="min-h-screen bg-[#0b1220] text-white"
     >
-      <header className="fixed top-0 right-0 left-0 z-50 h-16 border-b border-[#2A3843] bg-[#141C23]/95 backdrop-blur">
+      <header className="fixed top-0 right-0 left-0 z-50 h-16 border-b border-slate-700/60 bg-[#111827]/95 backdrop-blur">
         <div className="flex h-full items-center justify-between px-5">
           <div className="flex items-center gap-4">
             <Link
               href="/dashboard"
-              className="rounded-lg px-3 py-2 text-[#C2CDD5] transition hover:bg-[#1B2730] hover:text-[#F3F7F9]"
+              className="rounded-lg px-3 py-2 text-slate-300 transition hover:bg-slate-800 hover:text-white"
             >
               ←
             </Link>
@@ -311,7 +295,7 @@ export default function UsersPage() {
                 Hotel Reservation System
               </h1>
 
-              <p className="text-xs text-[#9AA8B3]">
+              <p className="text-xs text-slate-400">
                 Hotel Reservation System
               </p>
             </div>
@@ -319,7 +303,7 @@ export default function UsersPage() {
 
           <Link
             href="/dashboard"
-            className="text-sm text-teal-400 hover:text-teal-300"
+            className="text-sm text-blue-400 hover:text-blue-300"
           >
             Dashboard
           </Link>
@@ -334,7 +318,7 @@ export default function UsersPage() {
                 👥 Users
               </h2>
 
-              <p className="mt-1 text-sm text-[#9AA8B3]">
+              <p className="mt-1 text-sm text-slate-400">
                 Manage system users, permissions, and account status
               </p>
             </div>
@@ -344,7 +328,7 @@ export default function UsersPage() {
                 type="button"
                 onClick={() => loadUsers(true)}
                 disabled={loading || refreshing}
-                className="rounded-xl border border-[#394B58] bg-[#141C23] px-4 py-3 text-sm font-semibold text-[#D7E0E6] transition hover:bg-[#1B2730] disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-xl border border-slate-600 bg-[#111827] px-4 py-3 text-sm font-semibold text-slate-200 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {refreshing ? "Refreshing..." : "🔄 Refresh"}
               </button>
@@ -352,7 +336,7 @@ export default function UsersPage() {
               <button
                 type="button"
                 onClick={openCreateModal}
-                className="rounded-xl bg-teal-600 px-5 py-3 font-semibold transition hover:bg-teal-500"
+                className="rounded-xl bg-blue-600 px-5 py-3 font-semibold transition hover:bg-blue-500"
               >
                 ➕ New User
               </button>
@@ -394,17 +378,17 @@ export default function UsersPage() {
             />
 
             <StatCard
-              label="Managers"
-              value={loading ? "..." : String(stats.managers)}
+              label="Administrators"
+              value={loading ? "..." : String(stats.admins)}
               icon="🛡️"
               tone="blue"
             />
           </div>
 
-          <div className="mb-6 rounded-2xl border border-[#2A3843] bg-[#141C23] p-5">
+          <div className="mb-6 rounded-2xl border border-slate-700/60 bg-[#111827] p-5">
             <label
               htmlFor="user-search"
-              className="text-sm text-[#9AA8B3]"
+              className="text-sm text-slate-400"
             >
               Search
             </label>
@@ -416,20 +400,20 @@ export default function UsersPage() {
                 setSearch(event.target.value)
               }
               placeholder="Username, name, or role..."
-              className="mt-2 w-full rounded-xl border border-[#394B58] bg-[#0B1116] px-4 py-3 text-sm text-[#F3F7F9] outline-none transition placeholder:text-[#586874] focus:border-teal-400"
+              className="mt-2 w-full rounded-xl border border-slate-600 bg-[#0b1220] px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500"
             />
           </div>
 
           {loading ? (
-            <div className="rounded-2xl border border-[#2A3843] bg-[#141C23] p-12 text-center">
-              <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-[#30404C] border-t-blue-500" />
+            <div className="rounded-2xl border border-slate-700/60 bg-[#111827] p-12 text-center">
+              <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-slate-700 border-t-blue-500" />
 
-              <p className="text-sm text-[#9AA8B3]">
+              <p className="text-sm text-slate-400">
                 Loading users...
               </p>
             </div>
           ) : filteredUsers.length === 0 ? (
-            <div className="rounded-2xl border border-[#2A3843] bg-[#141C23] p-12 text-center">
+            <div className="rounded-2xl border border-slate-700/60 bg-[#111827] p-12 text-center">
               <div className="text-5xl">👥</div>
 
               <h3 className="mt-4 text-lg font-semibold">
@@ -438,7 +422,7 @@ export default function UsersPage() {
                   : "No results"}
               </h3>
 
-              <p className="mt-2 text-sm text-[#9AA8B3]">
+              <p className="mt-2 text-sm text-slate-400">
                 {users.length === 0
                   ? "Create the first system user using the New User button."
                   : "Try changing the search text."}
@@ -448,17 +432,17 @@ export default function UsersPage() {
                 <button
                   type="button"
                   onClick={openCreateModal}
-                  className="mt-6 rounded-xl bg-teal-600 px-5 py-3 font-semibold hover:bg-teal-500"
+                  className="mt-6 rounded-xl bg-blue-600 px-5 py-3 font-semibold hover:bg-blue-500"
                 >
                   ➕ Create User
                 </button>
               )}
             </div>
           ) : (
-            <div className="overflow-hidden rounded-2xl border border-[#2A3843] bg-[#141C23]">
+            <div className="overflow-hidden rounded-2xl border border-slate-700/60 bg-[#111827]">
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[1000px] text-sm">
-                  <thead className="border-b border-[#2A3843] bg-[#1B2730]/70">
+                <table className="w-full min-w-[1400px] text-sm">
+                  <thead className="border-b border-slate-700/60 bg-slate-800/40">
                     <tr>
                       <th className="px-5 py-4 text-right">
                         User
@@ -476,9 +460,10 @@ export default function UsersPage() {
                         Status
                       </th>
 
-                      <th className="px-5 py-4 text-right">
-                        Created At
-                      </th>
+                      <th className="px-5 py-4 text-right">Session</th>
+                      <th className="px-5 py-4 text-right">Last Login</th>
+                      <th className="px-5 py-4 text-right">Last Activity</th>
+                      <th className="px-5 py-4 text-right">Created At</th>
 
                       <th className="px-5 py-4 text-center">
                         Actions
@@ -490,18 +475,18 @@ export default function UsersPage() {
                     {filteredUsers.map((user) => (
                       <tr
                         key={user.id}
-                        className="border-b border-[#26333D] hover:bg-[#1B2730]/45"
+                        className="border-b border-slate-800/70 hover:bg-slate-800/30"
                       >
-                        <td className="px-5 py-4 font-semibold text-teal-300">
+                        <td className="px-5 py-4 font-semibold text-blue-300">
                           {user.username}
                         </td>
 
-                        <td className="px-5 py-4 text-[#D7E0E6]">
+                        <td className="px-5 py-4 text-slate-200">
                           {user.full_name || "-"}
                         </td>
 
-                        <td className="px-5 py-4 text-[#C2CDD5]">
-                          {normalizeRole(user.role)}
+                        <td className="px-5 py-4 text-slate-300">
+                          {user.role || "-"}
                         </td>
 
                         <td className="px-5 py-4">
@@ -518,11 +503,15 @@ export default function UsersPage() {
                           </span>
                         </td>
 
-                        <td className="px-5 py-4 text-[#9AA8B3]">
-                          {formatDateTime(
-                            user.created_at
-                          )}
+                        <td className="px-5 py-4">
+                          <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${user.online ? "border-green-500/20 bg-green-500/10 text-green-300" : "border-slate-600 bg-slate-800 text-slate-400"}`}>
+                            {user.online ? "🟢 Online" : "⚪ Offline"}
+                          </span>
+                          <div className="mt-1 text-xs text-slate-500">{user.active_sessions || 0} active</div>
                         </td>
+                        <td className="px-5 py-4 text-slate-400">{formatDateTime(user.last_login_at)}</td>
+                        <td className="px-5 py-4 text-slate-400">{formatDateTime(user.last_activity_at)}</td>
+                        <td className="px-5 py-4 text-slate-400">{formatDateTime(user.created_at)}</td>
 
                         <td className="px-5 py-4">
                           <div className="flex justify-center gap-2">
@@ -531,7 +520,7 @@ export default function UsersPage() {
                               onClick={() =>
                                 openEditModal(user)
                               }
-                              className="rounded-lg border border-teal-400/30 bg-teal-500/10 px-3 py-2 text-xs font-semibold text-teal-300 transition hover:bg-teal-500/20"
+                              className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-300 transition hover:bg-blue-500/20"
                             >
                               ✏️ Edit
                             </button>
@@ -551,6 +540,15 @@ export default function UsersPage() {
                                 ? "⛔ Disable"
                                 : "✅ Enable"}
                             </button>
+
+                            <button
+                              type="button"
+                              onClick={() => forceLogout(user)}
+                              disabled={user.active_sessions <= 0}
+                              className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              🚪 Force Logout
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -561,7 +559,7 @@ export default function UsersPage() {
             </div>
           )}
 
-          <p className="mt-4 text-xs text-[#73828D]">
+          <p className="mt-4 text-xs text-slate-500">
             Password changes are available from the Edit User button, and current passwords are not
             displayed.
           </p>
@@ -570,8 +568,8 @@ export default function UsersPage() {
 
       {modalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
-          <div className="w-full max-w-2xl rounded-2xl border border-[#30404C] bg-[#141C23] shadow-2xl">
-            <div className="flex items-center justify-between border-b border-[#30404C] p-5">
+          <div className="w-full max-w-2xl rounded-2xl border border-slate-700 bg-[#111827] shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-700 p-5">
               <div>
                 <h3 className="text-xl font-bold">
                   {editingUser
@@ -579,7 +577,7 @@ export default function UsersPage() {
                     : "➕ New User"}
                 </h3>
 
-                <p className="mt-1 text-xs text-[#9AA8B3]">
+                <p className="mt-1 text-xs text-slate-400">
                   {editingUser
                     ? "Edit user data or password"
                     : "Add a new system user"}
@@ -590,7 +588,7 @@ export default function UsersPage() {
                 type="button"
                 onClick={closeModal}
                 disabled={saving}
-                className="rounded-lg px-3 py-2 text-[#9AA8B3] hover:bg-[#1B2730] hover:text-[#F3F7F9] disabled:opacity-50"
+                className="rounded-lg px-3 py-2 text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-50"
               >
                 ✕
               </button>
@@ -642,34 +640,19 @@ export default function UsersPage() {
                 placeholder="Example: Mostafa Amer"
               />
 
-              <div>
-                <label
-                  htmlFor="user-role"
-                  className="mb-2 block text-sm text-[#9AA8B3]"
-                >
-                  Role *
-                </label>
+              <Field
+                label="Role"
+                value={form.role}
+                onChange={(value) =>
+                  setForm((current) => ({
+                    ...current,
+                    role: value,
+                  }))
+                }
+                placeholder="Administrator"
+              />
 
-                <select
-                  id="user-role"
-                  value={normalizeRole(form.role)}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      role: event.target.value as SystemRole,
-                    }))
-                  }
-                  className="w-full rounded-xl border border-[#394B58] bg-[#0B1116] px-4 py-3 text-sm text-[#F3F7F9] outline-none transition focus:border-teal-400"
-                >
-                  {ROLE_OPTIONS.map((role) => (
-                    <option key={role} value={role}>
-                      {role}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <label className="flex items-center gap-3 rounded-xl border border-[#30404C] bg-[#0B1116] p-4 md:col-span-2">
+              <label className="flex items-center gap-3 rounded-xl border border-slate-700 bg-[#0b1220] p-4 md:col-span-2">
                 <input
                   type="checkbox"
                   checked={form.is_active}
@@ -687,19 +670,19 @@ export default function UsersPage() {
                     User is active
                   </span>
 
-                  <span className="mt-1 block text-xs text-[#73828D]">
+                  <span className="mt-1 block text-xs text-slate-500">
                     Disabled users cannot sign in.
                   </span>
                 </span>
               </label>
             </div>
 
-            <div className="flex flex-col-reverse gap-3 border-t border-[#30404C] p-5 sm:flex-row sm:justify-end">
+            <div className="flex flex-col-reverse gap-3 border-t border-slate-700 p-5 sm:flex-row sm:justify-end">
               <button
                 type="button"
                 onClick={closeModal}
                 disabled={saving}
-                className="rounded-xl border border-[#394B58] px-5 py-3 font-semibold text-[#D7E0E6] transition hover:bg-[#1B2730] disabled:opacity-50"
+                className="rounded-xl border border-slate-600 px-5 py-3 font-semibold text-slate-200 transition hover:bg-slate-800 disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -708,7 +691,7 @@ export default function UsersPage() {
                 type="button"
                 onClick={saveUser}
                 disabled={saving}
-                className="rounded-xl bg-teal-600 px-5 py-3 font-semibold transition hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-xl bg-blue-600 px-5 py-3 font-semibold transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving
                   ? "Saving..."
@@ -739,7 +722,7 @@ function Field({
 }) {
   return (
     <div>
-      <label className="mb-2 block text-sm text-[#9AA8B3]">
+      <label className="mb-2 block text-sm text-slate-400">
         {label}
       </label>
 
@@ -750,7 +733,7 @@ function Field({
           onChange(event.target.value)
         }
         placeholder={placeholder}
-        className="w-full rounded-xl border border-[#394B58] bg-[#0B1116] px-4 py-3 text-sm text-[#F3F7F9] outline-none transition placeholder:text-[#586874] focus:border-teal-400"
+        className="w-full rounded-xl border border-slate-600 bg-[#0b1220] px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500"
       />
     </div>
   );
@@ -768,19 +751,19 @@ function StatCard({
   tone?: "slate" | "green" | "red" | "blue";
 }) {
   const toneClasses = {
-    slate: "border-[#2A3843]",
+    slate: "border-slate-700/60",
     green: "border-green-500/20",
     red: "border-red-500/20",
-    blue: "border-teal-400/20",
+    blue: "border-blue-500/20",
   };
 
   return (
     <div
-      className={`rounded-2xl border bg-[#141C23] p-5 ${toneClasses[tone]}`}
+      className={`rounded-2xl border bg-[#111827] p-5 ${toneClasses[tone]}`}
     >
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm text-[#9AA8B3]">
+          <p className="text-sm text-slate-400">
             {label}
           </p>
 
@@ -789,7 +772,7 @@ function StatCard({
           </p>
         </div>
 
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#1B2730]/70 text-xl">
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-800/70 text-xl">
           {icon}
         </div>
       </div>
