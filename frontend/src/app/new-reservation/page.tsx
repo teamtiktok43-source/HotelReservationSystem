@@ -1473,7 +1473,9 @@ setEmailMessage(
                     inputClass
                   }
                 >
-                  <option value="">
+                  <option value=""
+                        className="bg-white text-slate-900"
+                      >
                     {loadingHotels
                       ? "Loading hotels..."
                       : "Select hotel"}
@@ -1488,6 +1490,8 @@ setEmailMessage(
                         value={
                           hotel.id
                         }
+                      
+                        className="bg-white text-slate-900"
                       >
                         {
                           hotel.name
@@ -1705,6 +1709,8 @@ setEmailMessage(
                         value={
                           payment.value
                         }
+                      
+                        className="bg-white text-slate-900"
                       >
                         {
                           payment.label
@@ -2098,7 +2104,9 @@ setEmailMessage(
                               inputClass
                             }
                           >
-                            <option value="">
+                            <option value=""
+                        className="bg-white text-slate-900"
+                      >
                               {loadingRatePlans
                                 ? "Loading rate plans..."
                                 : "Select Rate Plan"}
@@ -2115,7 +2123,9 @@ setEmailMessage(
                                   value={
                                     rate.id
                                   }
-                                >
+                                
+                        className="bg-white text-slate-900"
+                      >
                                   {
                                     rate.code
                                   }{" "}
