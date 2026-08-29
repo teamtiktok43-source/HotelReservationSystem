@@ -1498,11 +1498,17 @@ setEmailMessage(
           Content
       ================================================= */}
 
-      <section className="mx-auto max-w-6xl px-6 py-8">
+      <section className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
         <form
           onSubmit={handleSubmit}
-          className="space-y-6"
+          className="space-y-4"
         >
+          {/* =================================================
+              Horizontal Layout
+          ================================================= */}
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <div className="space-y-4">
           {/* =================================================
               Reservation Information
           ================================================= */}
@@ -1841,6 +1847,9 @@ setEmailMessage(
             </div>
           </div>
 
+            </div>
+
+            <div className="space-y-4">
           {/* =================================================
               Stay
           ================================================= */}
@@ -2355,6 +2364,9 @@ setEmailMessage(
             </div>
           </div>
 
+            </div>
+          </div>
+
           {/* =================================================
               Financial
           ================================================= */}
@@ -2469,6 +2481,8 @@ setEmailMessage(
             )}
           </div>
 
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1.5fr]">
           {/* =================================================
               Guest Requests
           ================================================= */}
@@ -2578,6 +2592,8 @@ setEmailMessage(
                 />
               </div>
             )}
+          </div>
+
           </div>
 
           {/* =================================================
