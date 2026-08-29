@@ -286,6 +286,30 @@ function formatGuestComposition(adults: number, children: number) {
   return parts.join(" + ") || "0";
 }
 
+async function ensureRoomTypeExists(searchValue: string): Promise<RoomType> {
+  const name = searchValue.trim();
+
+  if (!name) {
+    throw new Error("Room type name is required.");
+  }
+
+  const data = await apiPost<{
+    success: boolean;
+    message: string;
+    room_type: RoomType;
+  }>("/room-types/ensure", {
+    name,
+    code: null,
+    is_active: true,
+  });
+
+  if (!data?.room_type?.id) {
+    throw new Error(data?.message || "Could not create the room type.");
+  }
+
+  return data.room_type;
+}
+
 function getCurrentUserName(): string {
   try {
     const rawUser =
@@ -306,29 +330,6 @@ function getCurrentUserName(): string {
   } catch {
     return "Reservations Department";
   }
-}
-
-async function ensureRoomTypeExists(searchValue: string): Promise<RoomType> {
-  const name = searchValue.trim();
-  if (!name) {
-    throw new Error("Room type name is required.");
-  }
-
-  const data = await apiPost<{
-    success: boolean;
-    message: string;
-    room_type: RoomType;
-  }>("/room-types/ensure", {
-    name,
-    code: null,
-    is_active: true,
-  });
-
-  if (!data?.room_type?.id) {
-    throw new Error(data?.message || "Could not create the room type.");
-  }
-
-  return data.room_type;
 }
 
 export default function NewReservationPage() {
