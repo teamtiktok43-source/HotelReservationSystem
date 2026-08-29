@@ -828,6 +828,10 @@ export default function Dashboard() {
               <p className="mt-1 text-sm text-[#9AA8B3]">
                 Welcome to the Hotel Reservation System
               </p>
+
+              <p className="mt-1 text-xs font-medium text-teal-400">
+                Created by Mostafa Amer
+              </p>
             </div>
 
             <button
