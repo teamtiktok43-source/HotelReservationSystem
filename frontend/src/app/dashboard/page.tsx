@@ -609,13 +609,13 @@ export default function Dashboard() {
               <p className="text-xs text-[#9AA8B3]">
                 Hotel Reservation System
               </p>
+            </div>
 
-              <div
-                className="hidden lg:block text-center text-sm font-semibold tracking-wide text-[#3B82F6] xl:text-base"
-                aria-label="Created by Mostafa Amer"
-              >
-                Created by Mostafa Amer
-              </div>
+            <div
+              className="hidden lg:block text-center text-sm font-semibold tracking-wide text-[#3B82F6] xl:text-base"
+              aria-label="Created by Mostafa Amer"
+            >
+              Created by Mostafa Amer
             </div>
           </div>
 

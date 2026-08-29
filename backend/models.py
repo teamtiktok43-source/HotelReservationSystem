@@ -727,19 +727,12 @@ class User(Base):
         default=lambda: datetime.now(timezone.utc)
     )
 
-
-# =========================================================
-# Email Settings
-# =========================================================
-
-
     permissions: Mapped[list["UserPermission"]] = relationship(
         "UserPermission",
         back_populates="user",
         cascade="all, delete-orphan",
         lazy="selectin",
     )
-
 
 
 # =========================================================
@@ -786,6 +779,12 @@ class UserSession(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc)
     )
+
+
+# =========================================================
+# Email Settings
+# =========================================================
+
 
 class EmailSettings(Base):
     __tablename__ = "email_settings"

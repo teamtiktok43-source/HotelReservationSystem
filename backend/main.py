@@ -464,8 +464,17 @@ def _required_roles_for_request(method: str, path: str) -> set[str] | None:
 
 @app.middleware("http")
 async def authorization_middleware(request: Request, call_next):
-    """Backend authentication, authorization, and session activity boundary."""
+    """
+    Backend security boundary.
 
+    The frontend will also hide restricted controls, but permissions are
+    enforced here so direct API calls cannot bypass them.
+    """
+
+    # CORS preflight requests are sent by the browser before protected
+    # POST/PATCH/PUT/DELETE requests. The preflight request itself does not
+    # carry the authenticated session cookie, so it must pass through the
+    # middleware before authentication and role checks.
     if request.method.upper() == "OPTIONS":
         return await call_next(request)
 
@@ -497,104 +506,114 @@ async def authorization_middleware(request: Request, call_next):
         )
         current_user = result.scalar_one_or_none()
 
-        if not current_user:
-            request.session.clear()
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Authentication required"},
+        if current_user:
+            current_session_version = getattr(
+                current_user, "session_version", 0
+            )
+            cookie_session_version = request.session.get(
+                "session_version"
             )
 
-        if not current_user.is_active:
-            request.session.clear()
-            return JSONResponse(
-                status_code=403,
-                content={"detail": "This user is inactive"},
-            )
-
-        current_session_version = int(
-            getattr(current_user, "session_version", 0) or 0
-        )
-        cookie_session_version = request.session.get("session_version")
-
-        if cookie_session_version is None:
-            request.session["session_version"] = current_session_version
-        else:
-            try:
-                if int(cookie_session_version) != current_session_version:
+            if cookie_session_version is None:
+                request.session["session_version"] = current_session_version
+            else:
+                try:
+                    if int(cookie_session_version) != int(
+                        current_session_version
+                    ):
+                        request.session.clear()
+                        return JSONResponse(
+                            status_code=401,
+                            content={"detail": "Authentication required"},
+                        )
+                except (TypeError, ValueError):
                     request.session.clear()
                     return JSONResponse(
                         status_code=401,
                         content={"detail": "Authentication required"},
                     )
-            except (TypeError, ValueError):
-                request.session.clear()
-                return JSONResponse(
-                    status_code=401,
-                    content={"detail": "Authentication required"},
-                )
 
-        now = datetime.now(timezone.utc)
-        session_token = request.session.get("session_token")
+            now = datetime.now(timezone.utc)
+            current_user.last_activity_at = now
+            session_token = request.session.get("session_token")
 
-        if not session_token:
-            session_token = secrets.token_urlsafe(32)
-            request.session["session_token"] = session_token
-            session.add(
-                UserSession(
-                    user_id=current_user.id,
-                    session_token=session_token,
-                    user_agent=request.headers.get("user-agent"),
-                    created_at=now,
-                    last_activity_at=now,
-                )
-            )
-        else:
-            session_result = await session.execute(
-                select(UserSession).where(
-                    UserSession.user_id == current_user.id,
-                    UserSession.session_token == str(session_token),
-                )
-            )
-            session_record = session_result.scalar_one_or_none()
-
-            if session_record:
-                session_record.last_activity_at = now
-            else:
+            if not session_token:
+                session_token = secrets.token_urlsafe(32)
+                request.session["session_token"] = session_token
                 session.add(
                     UserSession(
                         user_id=current_user.id,
-                        session_token=str(session_token),
+                        session_token=session_token,
                         user_agent=request.headers.get("user-agent"),
                         created_at=now,
                         last_activity_at=now,
                     )
                 )
+            else:
+                session_result = await session.execute(
+                    select(UserSession).where(
+                        UserSession.user_id == current_user.id,
+                        UserSession.session_token == str(session_token),
+                    )
+                )
+                session_record = session_result.scalar_one_or_none()
+                if session_record:
+                    session_record.last_activity_at = now
+                else:
+                    session.add(
+                        UserSession(
+                            user_id=current_user.id,
+                            session_token=str(session_token),
+                            user_agent=request.headers.get("user-agent"),
+                            created_at=now,
+                            last_activity_at=now,
+                        )
+                    )
 
-        request.session["user_id"] = current_user.id
-        request.session["username"] = current_user.username
-        request.session["role"] = normalize_role(current_user.role)
-        request.session["session_version"] = current_session_version
+            await session.commit()
 
-        required_roles = _required_roles_for_request(request.method, path)
+    if not current_user:
+        request.session.clear()
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Authentication required"},
+        )
 
-        if (
-            required_roles is not None
-            and normalize_role(current_user.role) not in required_roles
-        ):
-            await session.rollback()
-            return JSONResponse(
-                status_code=403,
-                content={
-                    "detail":
-                        "You do not have permission to perform this action"
-                },
-            )
+    if not current_user.is_active:
+        request.session.clear()
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "This user is inactive"},
+        )
 
-        await session.commit()
+    normalized_role = normalize_role(current_user.role)
 
+    request.session["user_id"] = current_user.id
+    request.session["username"] = current_user.username
+    request.session["role"] = normalized_role
+
+    required_roles = _required_roles_for_request(
+        request.method,
+        path,
+    )
+
+    if required_roles is not None and normalized_role not in required_roles:
+        return JSONResponse(
+            status_code=403,
+            content={
+                "detail":
+                    "You do not have permission to perform this action"
+            },
+        )
+
+    # License management remains available when the license is expired,
+    # so IT can generate and activate the next monthly license.
     if path in LICENSE_EXEMPT_PATHS:
         return await call_next(request)
 
+    # Keep login/session discovery available so the frontend can identify
+    # the IT user and show the activation screen instead of treating the
+    # user as logged out.
     if path == "/auth/me":
         return await call_next(request)
 
@@ -1735,122 +1754,6 @@ async def migrate_database():
             """
             ALTER TABLE users
             ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0
-            """
-        ),
-
-        (
-            "user_sessions_schema",
-            """
-            DO $$
-            BEGIN
-                CREATE TABLE IF NOT EXISTS user_sessions (
-                    id SERIAL PRIMARY KEY,
-                    user_id INTEGER NOT NULL
-                        REFERENCES users(id)
-                        ON DELETE CASCADE,
-                    session_token VARCHAR(128),
-                    user_agent TEXT,
-                    created_at TIMESTAMP WITH TIME ZONE
-                        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    last_activity_at TIMESTAMP WITH TIME ZONE
-                        NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );
-
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'user_sessions'
-                      AND column_name = 'user_id'
-                ) THEN
-                    ALTER TABLE user_sessions ADD COLUMN user_id INTEGER;
-                END IF;
-
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'user_sessions'
-                      AND column_name = 'session_token'
-                ) THEN
-                    ALTER TABLE user_sessions ADD COLUMN session_token VARCHAR(128);
-                END IF;
-
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'user_sessions'
-                      AND column_name = 'user_agent'
-                ) THEN
-                    ALTER TABLE user_sessions ADD COLUMN user_agent TEXT;
-                END IF;
-
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'user_sessions'
-                      AND column_name = 'created_at'
-                ) THEN
-                    ALTER TABLE user_sessions
-                    ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
-                END IF;
-
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'user_sessions'
-                      AND column_name = 'last_activity_at'
-                ) THEN
-                    ALTER TABLE user_sessions
-                    ADD COLUMN last_activity_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
-                END IF;
-
-                UPDATE user_sessions
-                SET session_token = md5(
-                    random()::text ||
-                    clock_timestamp()::text ||
-                    COALESCE(id, 0)::text
-                )
-                WHERE session_token IS NULL
-                   OR session_token IN (
-                        SELECT session_token
-                        FROM user_sessions
-                        WHERE session_token IS NOT NULL
-                        GROUP BY session_token
-                        HAVING COUNT(*) > 1
-                   );
-
-                UPDATE user_sessions
-                SET created_at = CURRENT_TIMESTAMP
-                WHERE created_at IS NULL;
-
-                UPDATE user_sessions
-                SET last_activity_at = COALESCE(created_at, CURRENT_TIMESTAMP)
-                WHERE last_activity_at IS NULL;
-
-                IF NOT EXISTS (
-                    SELECT 1 FROM pg_indexes
-                    WHERE schemaname = current_schema()
-                      AND tablename = 'user_sessions'
-                      AND indexname = 'ux_user_sessions_session_token'
-                ) THEN
-                    CREATE UNIQUE INDEX ux_user_sessions_session_token
-                    ON user_sessions(session_token);
-                END IF;
-
-                IF NOT EXISTS (
-                    SELECT 1 FROM pg_indexes
-                    WHERE schemaname = current_schema()
-                      AND tablename = 'user_sessions'
-                      AND indexname = 'ix_user_sessions_user_id'
-                ) THEN
-                    CREATE INDEX ix_user_sessions_user_id
-                    ON user_sessions(user_id);
-                END IF;
-
-                IF EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'user_sessions'
-                      AND column_name = 'session_token'
-                      AND is_nullable = 'YES'
-                ) THEN
-                    ALTER TABLE user_sessions
-                    ALTER COLUMN session_token SET NOT NULL;
-                END IF;
-            END $$;
             """
         ),
 
@@ -3442,8 +3345,11 @@ async def get_room_types():
 
 @app.post("/room-types/ensure")
 async def ensure_room_type(data: RoomTypeCreate):
-    """Return an existing Room Type or create a new one for a reservation."""
-
+    """
+    Return an existing active Room Type or create it when a reservation
+    employee enters a new room type that is not in master data yet.
+    The reservation page uses the returned database ID for the FK.
+    """
     name = data.name.strip()
 
     if not name:
@@ -3453,11 +3359,11 @@ async def ensure_room_type(data: RoomTypeCreate):
         )
 
     async with AsyncSessionLocal() as session:
+        # Match by name or code so a typed existing code does not create a duplicate.
         result = await session.execute(
-            select(RoomType)
-            .where(func.lower(RoomType.name) == name.lower())
-            .order_by(RoomType.id)
-            .limit(1)
+            select(RoomType).where(
+                func.lower(RoomType.name) == name.lower()
+            )
         )
         room_type = result.scalar_one_or_none()
 
@@ -3479,11 +3385,11 @@ async def ensure_room_type(data: RoomTypeCreate):
                 },
             }
 
+        # Also accept an existing master-data code typed into the field.
         result = await session.execute(
-            select(RoomType)
-            .where(func.lower(RoomType.code) == name.lower())
-            .order_by(RoomType.id)
-            .limit(1)
+            select(RoomType).where(
+                func.lower(RoomType.code) == name.lower()
+            )
         )
         room_type = result.scalar_one_or_none()
 
@@ -6254,9 +6160,8 @@ async def serialize_user(
     session,
     active_window_minutes: int = 15,
 ):
-    cutoff = datetime.now(timezone.utc) - timedelta(
-        minutes=active_window_minutes
-    )
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(minutes=active_window_minutes)
 
     result = await session.execute(
         select(func.count(UserSession.id)).where(
@@ -6576,9 +6481,8 @@ async def force_logout_user(
                 detail="User not found",
             )
 
-        user.session_version = int(
-            getattr(user, "session_version", 0) or 0
-        ) + 1
+        # Invalidate all currently issued application sessions.
+        user.session_version = int(getattr(user, "session_version", 0)) + 1
 
         session_result = await session.execute(
             select(UserSession).where(
@@ -6586,7 +6490,6 @@ async def force_logout_user(
             )
         )
         sessions = session_result.scalars().all()
-
         for session_record in sessions:
             await session.delete(session_record)
 
@@ -6594,10 +6497,7 @@ async def force_logout_user(
 
         return {
             "success": True,
-            "message": (
-                f"User {user.username} was logged out "
-                "from all active devices."
-            ),
+            "message": f"User {user.username} was logged out from all active devices.",
         }
 
 
@@ -6802,13 +6702,14 @@ async def login(
             last_activity_at=now,
         )
         session.add(session_record)
+        await session.flush()
 
         request.session["user_id"] = user.id
         request.session["username"] = user.username
         request.session["role"] = normalized_role
         request.session["session_token"] = session_token
-        request.session["session_version"] = int(
-            getattr(user, "session_version", 0) or 0
+        request.session["session_version"] = getattr(
+            user, "session_version", 0
         )
 
         await session.commit()
@@ -6881,8 +6782,10 @@ async def auth_me(request: Request):
             )
 
         normalized_role = normalize_role(user.role)
+
         session_token = request.session.get("session_token")
         now = datetime.now(timezone.utc)
+        user.last_activity_at = now
 
         if session_token:
             session_result = await session.execute(
@@ -6897,8 +6800,8 @@ async def auth_me(request: Request):
 
         request.session["role"] = normalized_role
         request.session["username"] = user.username
-        request.session["session_version"] = int(
-            getattr(user, "session_version", 0) or 0
+        request.session["session_version"] = getattr(
+            user, "session_version", 0
         )
 
         await session.commit()
