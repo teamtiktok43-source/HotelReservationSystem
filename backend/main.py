@@ -1739,118 +1739,134 @@ async def migrate_database():
         ),
 
         (
-            "user_sessions_schema",
+            "user_sessions_schema_v3",
             """
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                id BIGINT,
+                user_id INTEGER,
+                session_token VARCHAR(128),
+                user_agent TEXT,
+                created_at TIMESTAMP WITH TIME ZONE,
+                last_activity_at TIMESTAMP WITH TIME ZONE
+            );
+
+            ALTER TABLE user_sessions
+                ADD COLUMN IF NOT EXISTS id BIGINT;
+
+            ALTER TABLE user_sessions
+                ADD COLUMN IF NOT EXISTS user_id INTEGER;
+
+            ALTER TABLE user_sessions
+                ADD COLUMN IF NOT EXISTS session_token VARCHAR(128);
+
+            ALTER TABLE user_sessions
+                ADD COLUMN IF NOT EXISTS user_agent TEXT;
+
+            ALTER TABLE user_sessions
+                ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE;
+
+            ALTER TABLE user_sessions
+                ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMP WITH TIME ZONE;
+
+            CREATE SEQUENCE IF NOT EXISTS user_sessions_id_seq;
+
+            SELECT setval(
+                'user_sessions_id_seq',
+                GREATEST(
+                    COALESCE((SELECT MAX(id) FROM user_sessions), 0),
+                    1
+                ),
+                COALESCE((SELECT MAX(id) FROM user_sessions), 0) > 0
+            );
+
+            UPDATE user_sessions
+            SET id = nextval('user_sessions_id_seq')
+            WHERE id IS NULL;
+
+            SELECT setval(
+                'user_sessions_id_seq',
+                GREATEST(
+                    COALESCE((SELECT MAX(id) FROM user_sessions), 0),
+                    1
+                ),
+                COALESCE((SELECT MAX(id) FROM user_sessions), 0) > 0
+            );
+
+            ALTER TABLE user_sessions
+                ALTER COLUMN id SET DEFAULT nextval('user_sessions_id_seq');
+
+            ALTER SEQUENCE user_sessions_id_seq
+                OWNED BY user_sessions.id;
+
             DO $$
             BEGIN
-                CREATE TABLE IF NOT EXISTS user_sessions (
-                    id SERIAL PRIMARY KEY,
-                    user_id INTEGER NOT NULL
-                        REFERENCES users(id)
-                        ON DELETE CASCADE,
-                    session_token VARCHAR(128),
-                    user_agent TEXT,
-                    created_at TIMESTAMP WITH TIME ZONE
-                        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    last_activity_at TIMESTAMP WITH TIME ZONE
-                        NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );
-
                 IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'user_sessions'
-                      AND column_name = 'user_id'
-                ) THEN
-                    ALTER TABLE user_sessions ADD COLUMN user_id INTEGER;
-                END IF;
-
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'user_sessions'
-                      AND column_name = 'session_token'
-                ) THEN
-                    ALTER TABLE user_sessions ADD COLUMN session_token VARCHAR(128);
-                END IF;
-
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'user_sessions'
-                      AND column_name = 'user_agent'
-                ) THEN
-                    ALTER TABLE user_sessions ADD COLUMN user_agent TEXT;
-                END IF;
-
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'user_sessions'
-                      AND column_name = 'created_at'
+                    SELECT 1
+                    FROM pg_constraint
+                    WHERE conrelid = 'user_sessions'::regclass
+                      AND contype = 'p'
                 ) THEN
                     ALTER TABLE user_sessions
-                    ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
-                END IF;
-
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'user_sessions'
-                      AND column_name = 'last_activity_at'
-                ) THEN
-                    ALTER TABLE user_sessions
-                    ADD COLUMN last_activity_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
-                END IF;
-
-                UPDATE user_sessions
-                SET session_token = md5(
-                    random()::text ||
-                    clock_timestamp()::text ||
-                    COALESCE(id, 0)::text
-                )
-                WHERE session_token IS NULL
-                   OR session_token IN (
-                        SELECT session_token
-                        FROM user_sessions
-                        WHERE session_token IS NOT NULL
-                        GROUP BY session_token
-                        HAVING COUNT(*) > 1
-                   );
-
-                UPDATE user_sessions
-                SET created_at = CURRENT_TIMESTAMP
-                WHERE created_at IS NULL;
-
-                UPDATE user_sessions
-                SET last_activity_at = COALESCE(created_at, CURRENT_TIMESTAMP)
-                WHERE last_activity_at IS NULL;
-
-                IF NOT EXISTS (
-                    SELECT 1 FROM pg_indexes
-                    WHERE schemaname = current_schema()
-                      AND tablename = 'user_sessions'
-                      AND indexname = 'ux_user_sessions_session_token'
-                ) THEN
-                    CREATE UNIQUE INDEX ux_user_sessions_session_token
-                    ON user_sessions(session_token);
-                END IF;
-
-                IF NOT EXISTS (
-                    SELECT 1 FROM pg_indexes
-                    WHERE schemaname = current_schema()
-                      AND tablename = 'user_sessions'
-                      AND indexname = 'ix_user_sessions_user_id'
-                ) THEN
-                    CREATE INDEX ix_user_sessions_user_id
-                    ON user_sessions(user_id);
-                END IF;
-
-                IF EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'user_sessions'
-                      AND column_name = 'session_token'
-                      AND is_nullable = 'YES'
-                ) THEN
-                    ALTER TABLE user_sessions
-                    ALTER COLUMN session_token SET NOT NULL;
+                        ADD CONSTRAINT pk_user_sessions PRIMARY KEY (id);
                 END IF;
             END $$;
+
+            UPDATE user_sessions
+            SET session_token = md5(
+                random()::text ||
+                clock_timestamp()::text ||
+                id::text
+            )
+            WHERE session_token IS NULL;
+
+            UPDATE user_sessions AS current_row
+            SET session_token = md5(
+                random()::text ||
+                clock_timestamp()::text ||
+                current_row.id::text ||
+                current_row.ctid::text
+            )
+            WHERE current_row.session_token IN (
+                SELECT duplicate_tokens.session_token
+                FROM user_sessions AS duplicate_tokens
+                WHERE duplicate_tokens.session_token IS NOT NULL
+                GROUP BY duplicate_tokens.session_token
+                HAVING COUNT(*) > 1
+            );
+
+            UPDATE user_sessions
+            SET created_at = CURRENT_TIMESTAMP
+            WHERE created_at IS NULL;
+
+            UPDATE user_sessions
+            SET last_activity_at = COALESCE(created_at, CURRENT_TIMESTAMP)
+            WHERE last_activity_at IS NULL;
+
+            ALTER TABLE user_sessions
+                ALTER COLUMN id SET NOT NULL;
+
+            ALTER TABLE user_sessions
+                ALTER COLUMN session_token SET NOT NULL;
+
+            ALTER TABLE user_sessions
+                ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP;
+
+            ALTER TABLE user_sessions
+                ALTER COLUMN created_at SET NOT NULL;
+
+            ALTER TABLE user_sessions
+                ALTER COLUMN last_activity_at SET DEFAULT CURRENT_TIMESTAMP;
+
+            ALTER TABLE user_sessions
+                ALTER COLUMN last_activity_at SET NOT NULL;
+
+            CREATE UNIQUE INDEX IF NOT EXISTS
+                ux_user_sessions_session_token
+            ON user_sessions(session_token);
+
+            CREATE INDEX IF NOT EXISTS
+                ix_user_sessions_user_id
+            ON user_sessions(user_id);
             """
         ),
 
