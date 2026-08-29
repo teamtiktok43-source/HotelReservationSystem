@@ -422,6 +422,11 @@ def _required_roles_for_request(method: str, path: str) -> set[str] | None:
     if path == "/users" or path.startswith("/users/"):
         return {ROLE_MANAGER, ROLE_IT}
 
+    # Reservation entry may ensure a Room Type exists without opening
+    # general Room Type master-data management to Reservation Employees.
+    if path == "/room-types/ensure":
+        return None
+
     # Master-data management is Manager/IT only.
     if path == "/hotels" and method != "GET":
         return {ROLE_MANAGER, ROLE_IT}
@@ -3431,6 +3436,69 @@ async def create_room_type(
 
             },
 
+        }
+
+
+# =========================================================
+# Ensure Room Type for Reservation Entry
+# =========================================================
+
+@app.post("/room-types/ensure")
+async def ensure_room_type(data: RoomTypeCreate):
+    """Return an existing Room Type or create it when typed in a reservation."""
+
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(
+            status_code=400,
+            detail="Room type name is required",
+        )
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(RoomType).where(
+                RoomType.name.ilike(name)
+            ).order_by(RoomType.id)
+        )
+        room_type = result.scalars().first()
+
+        if room_type:
+            if not room_type.is_active:
+                room_type.is_active = True
+                await session.commit()
+                await session.refresh(room_type)
+
+            return {
+                "success": True,
+                "message": "Room type already exists",
+                "room_type": {
+                    "id": room_type.id,
+                    "name": room_type.name,
+                    "code": room_type.code,
+                    "is_active": room_type.is_active,
+                    "created_at": room_type.created_at,
+                },
+            }
+
+        room_type = RoomType(
+            name=name,
+            code=None,
+            is_active=True,
+        )
+        session.add(room_type)
+        await session.commit()
+        await session.refresh(room_type)
+
+        return {
+            "success": True,
+            "message": "Room type created successfully",
+            "room_type": {
+                "id": room_type.id,
+                "name": room_type.name,
+                "code": room_type.code,
+                "is_active": room_type.is_active,
+                "created_at": room_type.created_at,
+            },
         }
 
 
