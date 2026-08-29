@@ -610,6 +610,13 @@ export default function Dashboard() {
                 Hotel Reservation System
               </p>
             </div>
+
+            <div
+              className="hidden lg:block text-center text-sm font-semibold tracking-wide text-[#3B82F6] xl:text-base"
+              aria-label="Created by Mostafa Amer"
+            >
+              Created by Mostafa Amer
+            </div>
           </div>
 
           <div className="flex items-center gap-3">
