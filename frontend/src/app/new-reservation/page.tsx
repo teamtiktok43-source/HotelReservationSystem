@@ -308,29 +308,6 @@ function getCurrentUserName(): string {
   }
 }
 
-async function ensureRoomTypeExists(searchValue: string): Promise<RoomType> {
-  const name = searchValue.trim();
-  if (!name) {
-    throw new Error("Room type name is required.");
-  }
-
-  const data = await apiPost<{
-    success: boolean;
-    message: string;
-    room_type: RoomType;
-  }>("/room-types/ensure", {
-    name,
-    code: null,
-    is_active: true,
-  });
-
-  if (!data?.room_type?.id) {
-    throw new Error(data?.message || "Could not create the room type.");
-  }
-
-  return data.room_type;
-}
-
 export default function NewReservationPage() {
   // =====================================================
   // Master Data
@@ -1102,62 +1079,21 @@ setRatePlans(
       return;
     }
 
-    const preparedRooms = rooms.map((room) => ({ ...room }));
-
     for (
       let index = 0;
-      index < preparedRooms.length;
+      index < rooms.length;
       index++
     ) {
-      const room = preparedRooms[index];
+      const room =
+        rooms[index];
 
       if (!room.room_type_id) {
-        const typedRoomType = (
-          selectedRoomSearchValues[index] || ""
-        ).trim();
-
-        if (!typedRoomType) {
-          setError(
-            `Please select or enter room type number ${
-              index + 1
-            }`
-          );
-          return;
-        }
-
-        const existingRoomType = roomTypes.find(
-          (type) =>
-            normalizeSearchValue(type.name) ===
-              normalizeSearchValue(typedRoomType) ||
-            normalizeSearchValue(type.code || "") ===
-              normalizeSearchValue(typedRoomType)
+        setError(
+          `Please select room type number ${
+            index + 1
+          }`
         );
-
-        try {
-          const resolvedRoomType =
-            existingRoomType ||
-            (await ensureRoomTypeExists(typedRoomType));
-
-          preparedRooms[index].room_type_id = String(
-            resolvedRoomType.id
-          );
-
-          if (!existingRoomType) {
-            setRoomTypes((current) => {
-              if (current.some((item) => item.id === resolvedRoomType.id)) {
-                return current;
-              }
-              return [...current, resolvedRoomType];
-            });
-          }
-        } catch (roomTypeError) {
-          setError(
-            roomTypeError instanceof Error
-              ? roomTypeError.message
-              : `Could not create room type ${index + 1}`
-          );
-          return;
-        }
+        return;
       }
 
       if (!room.rate_plan_id) {
@@ -1169,11 +1105,17 @@ setRatePlans(
         return;
       }
 
-      const roomPrice = Number(room.total_price_usd);
+      const roomPrice =
+        Number(
+          room.total_price_usd
+        );
 
       if (
-        room.total_price_usd === "" ||
-        !Number.isFinite(roomPrice) ||
+        room.total_price_usd ===
+          "" ||
+        !Number.isFinite(
+          roomPrice
+        ) ||
         roomPrice < 0
       ) {
         setError(
@@ -1252,7 +1194,7 @@ setRatePlans(
           reservationType,
 
         rooms:
-          preparedRooms.map(
+          rooms.map(
             (room) => ({
               room_type_id:
                 Number(
@@ -1510,7 +1452,7 @@ setEmailMessage(
               📋 Reservation Information
             </h2>
 
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-5 md:grid-cols-2">
               {/* Booking Number */}
 
               <Field label="Booking Number *">
@@ -1848,7 +1790,7 @@ setEmailMessage(
               📅 Stay Information
             </h2>
 
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="grid gap-5 md:grid-cols-2">
               {/* Check In */}
 
               <Field
@@ -2031,7 +1973,7 @@ setEmailMessage(
                       key={
                         index
                       }
-                      className="rounded-xl border border-slate-700 bg-[#0b1220] p-4"
+                      className="rounded-2xl border border-slate-700 bg-[#0b1220] p-5"
                     >
                       <div className="mb-5 flex items-center justify-between">
                         <h3 className="text-base font-bold text-blue-300">
@@ -2048,12 +1990,12 @@ setEmailMessage(
                         </span>
                       </div>
 
-                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                      <div className="grid gap-5 md:grid-cols-2">
                         {/* Room Type */}
 
                         <Field
                           label="Room Type *"
-                          hint="Search existing types or enter a new type — new types are added on Save"
+                          hint="Search by name or abbreviation"
                         >
                           <div className="space-y-2">
                             <input
@@ -2098,52 +2040,98 @@ setEmailMessage(
                               disabled={loadingRoomTypes}
                             />
 
-                            {(selectedRoomSearchValues[index] || "").trim() && (
-                              <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-700 bg-[#0b1220]">
-                                {roomTypes
-                                  .filter((type) =>
-                                    roomTypeMatchesSearch(
-                                      type,
-                                      selectedRoomSearchValues[index] || ""
+                            {(
+                              selectedRoomSearchValues[
+                                index
+                              ] || ""
+                            ).trim() &&
+                              roomTypes.filter(
+                                (type) =>
+                                  type.name
+                                    .toLowerCase()
+                                    .includes(
+                                      (
+                                        selectedRoomSearchValues[
+                                          index
+                                        ] || ""
+                                      )
+                                        .trim()
+                                        .toLowerCase()
+                                    ) ||
+                                  (type.code || "")
+                                    .toLowerCase()
+                                    .includes(
+                                      (
+                                        selectedRoomSearchValues[
+                                          index
+                                        ] || ""
+                                      )
+                                        .trim()
+                                        .toLowerCase()
                                     )
-                                  )
-                                  .slice(0, 20)
-                                  .map((type) => (
-                                    <button
-                                      type="button"
-                                      key={type.id}
-                                      onClick={() => {
-                                        updateRoom(
-                                          index,
-                                          "room_type_id",
-                                          String(type.id)
-                                        );
-                                        setRoomTypeSearchByIndex((current) => ({
-                                          ...current,
-                                          [index]: "",
-                                        }));
-                                      }}
-                                      className="block w-full px-4 py-3 text-left text-sm text-slate-200 transition hover:bg-slate-800"
-                                    >
-                                      <span className="font-semibold text-blue-300">
-                                        {type.code || "-"}
-                                      </span>
-                                      <span className="ml-2">{type.name}</span>
-                                    </button>
-                                  ))}
+                              ).length > 0 && (
+                                <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-700 bg-[#0b1220]">
+                                  {roomTypes
+                                    .filter(
+                                      (type) =>
+                                        type.name
+                                          .toLowerCase()
+                                          .includes(
+                                            (
+                                              selectedRoomSearchValues[
+                                                index
+                                              ] || ""
+                                            )
+                                              .trim()
+                                              .toLowerCase()
+                                          ) ||
+                                        (type.code || "")
+                                          .toLowerCase()
+                                          .includes(
+                                            (
+                                              selectedRoomSearchValues[
+                                                index
+                                              ] || ""
+                                            )
+                                              .trim()
+                                              .toLowerCase()
+                                          )
+                                    )
+                                    .slice(0, 20)
+                                    .map((type) => (
+                                      <button
+                                        type="button"
+                                        key={type.id}
+                                        onClick={() => {
+                                          updateRoom(
+                                            index,
+                                            "room_type_id",
+                                            String(
+                                              type.id
+                                            )
+                                          );
 
-                                {roomTypes.filter((type) =>
-                                  roomTypeMatchesSearch(
-                                    type,
-                                    selectedRoomSearchValues[index] || ""
-                                  )
-                                ).length === 0 && (
-                                  <div className="px-4 py-3 text-sm text-emerald-300">
-                                    ✓ New room type will be added automatically when you save this reservation.
-                                  </div>
-                                )}
-                              </div>
-                            )}
+                                          setRoomTypeSearchByIndex(
+                                            (current) => ({
+                                              ...current,
+                                              [index]:
+                                                "",
+                                            })
+                                          );
+                                        }}
+                                        className="block w-full px-4 py-3 text-left text-sm text-slate-200 transition hover:bg-slate-800"
+                                      >
+                                        <span className="font-semibold text-blue-300">
+                                          {type.code ||
+                                            "-"}
+                                        </span>
+                                        <span className="ml-2">
+                                          {type.name}
+                                        </span>
+                                      </button>
+                                    ))}
+                                </div>
+                              )}
                           </div>
                         </Field>
 

@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import func, select, text
+from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 from datetime import date, datetime, timezone, timedelta
 from email.message import EmailMessage
@@ -30,7 +30,6 @@ from models import (
     ReservationRoom,
     PrintedReservation,
     User,
-    UserSession,
     Hotel,
     HotelAttachment,
     RoomType,
@@ -505,72 +504,6 @@ async def authorization_middleware(request: Request, call_next):
             select(User).where(User.id == user_id_int)
         )
         current_user = result.scalar_one_or_none()
-
-        if current_user:
-            current_session_version = getattr(
-                current_user, "session_version", 0
-            )
-            cookie_session_version = request.session.get(
-                "session_version"
-            )
-
-            if cookie_session_version is None:
-                request.session["session_version"] = current_session_version
-            else:
-                try:
-                    if int(cookie_session_version) != int(
-                        current_session_version
-                    ):
-                        request.session.clear()
-                        return JSONResponse(
-                            status_code=401,
-                            content={"detail": "Authentication required"},
-                        )
-                except (TypeError, ValueError):
-                    request.session.clear()
-                    return JSONResponse(
-                        status_code=401,
-                        content={"detail": "Authentication required"},
-                    )
-
-            now = datetime.now(timezone.utc)
-            current_user.last_activity_at = now
-            session_token = request.session.get("session_token")
-
-            if not session_token:
-                session_token = secrets.token_urlsafe(32)
-                request.session["session_token"] = session_token
-                session.add(
-                    UserSession(
-                        user_id=current_user.id,
-                        session_token=session_token,
-                        user_agent=request.headers.get("user-agent"),
-                        created_at=now,
-                        last_activity_at=now,
-                    )
-                )
-            else:
-                session_result = await session.execute(
-                    select(UserSession).where(
-                        UserSession.user_id == current_user.id,
-                        UserSession.session_token == str(session_token),
-                    )
-                )
-                session_record = session_result.scalar_one_or_none()
-                if session_record:
-                    session_record.last_activity_at = now
-                else:
-                    session.add(
-                        UserSession(
-                            user_id=current_user.id,
-                            session_token=str(session_token),
-                            user_agent=request.headers.get("user-agent"),
-                            created_at=now,
-                            last_activity_at=now,
-                        )
-                    )
-
-            await session.commit()
 
     if not current_user:
         request.session.clear()
@@ -1744,18 +1677,6 @@ async def migrate_database():
     """
 
     migrations = [
-
-        # =====================================================
-        # Users - multi-device session support
-        # =====================================================
-
-        (
-            "user_session_version",
-            """
-            ALTER TABLE users
-            ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0
-            """
-        ),
 
         # =====================================================
         # Reservations - new fields
@@ -3337,100 +3258,6 @@ async def get_room_types():
             for room in room_types
 
         ]
-
-
-# =========================================================
-# Ensure Room Type (Reservation Entry)
-# =========================================================
-
-@app.post("/room-types/ensure")
-async def ensure_room_type(data: RoomTypeCreate):
-    """
-    Return an existing active Room Type or create it when a reservation
-    employee enters a new room type that is not in master data yet.
-    The reservation page uses the returned database ID for the FK.
-    """
-    name = data.name.strip()
-
-    if not name:
-        raise HTTPException(
-            status_code=400,
-            detail="Room type name is required",
-        )
-
-    async with AsyncSessionLocal() as session:
-        # Match by name or code so a typed existing code does not create a duplicate.
-        result = await session.execute(
-            select(RoomType).where(
-                func.lower(RoomType.name) == name.lower()
-            )
-        )
-        room_type = result.scalar_one_or_none()
-
-        if room_type:
-            if not room_type.is_active:
-                room_type.is_active = True
-                await session.commit()
-                await session.refresh(room_type)
-
-            return {
-                "success": True,
-                "message": "Room type already exists",
-                "room_type": {
-                    "id": room_type.id,
-                    "name": room_type.name,
-                    "code": room_type.code,
-                    "is_active": room_type.is_active,
-                    "created_at": room_type.created_at,
-                },
-            }
-
-        # Also accept an existing master-data code typed into the field.
-        result = await session.execute(
-            select(RoomType).where(
-                func.lower(RoomType.code) == name.lower()
-            )
-        )
-        room_type = result.scalar_one_or_none()
-
-        if room_type:
-            if not room_type.is_active:
-                room_type.is_active = True
-                await session.commit()
-                await session.refresh(room_type)
-
-            return {
-                "success": True,
-                "message": "Room type already exists",
-                "room_type": {
-                    "id": room_type.id,
-                    "name": room_type.name,
-                    "code": room_type.code,
-                    "is_active": room_type.is_active,
-                    "created_at": room_type.created_at,
-                },
-            }
-
-        room_type = RoomType(
-            name=name,
-            code=None,
-            is_active=True,
-        )
-        session.add(room_type)
-        await session.commit()
-        await session.refresh(room_type)
-
-        return {
-            "success": True,
-            "message": "Room type added successfully",
-            "room_type": {
-                "id": room_type.id,
-                "name": room_type.name,
-                "code": room_type.code,
-                "is_active": room_type.is_active,
-                "created_at": room_type.created_at,
-            },
-        }
 
 
 # =========================================================
@@ -6155,38 +5982,7 @@ async def get_reservation_print_history(
 # Users
 # =========================================================
 
-async def serialize_user(
-    user: User,
-    session,
-    active_window_minutes: int = 15,
-):
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(minutes=active_window_minutes)
-
-    result = await session.execute(
-        select(func.count(UserSession.id)).where(
-            UserSession.user_id == user.id,
-            UserSession.last_activity_at >= cutoff,
-        )
-    )
-    active_sessions = int(result.scalar() or 0)
-
-    last_login_result = await session.execute(
-        select(UserSession.created_at)
-        .where(UserSession.user_id == user.id)
-        .order_by(UserSession.created_at.desc())
-        .limit(1)
-    )
-    last_login_at = last_login_result.scalar_one_or_none()
-
-    last_activity_result = await session.execute(
-        select(UserSession.last_activity_at)
-        .where(UserSession.user_id == user.id)
-        .order_by(UserSession.last_activity_at.desc())
-        .limit(1)
-    )
-    last_activity_at = last_activity_result.scalar_one_or_none()
-
+def serialize_user(user: User):
     return {
         "id": user.id,
         "username": user.username,
@@ -6194,10 +5990,6 @@ async def serialize_user(
         "role": normalize_role(user.role),
         "is_active": user.is_active,
         "created_at": user.created_at,
-        "last_login_at": last_login_at,
-        "last_activity_at": last_activity_at,
-        "active_sessions": active_sessions,
-        "online": active_sessions > 0,
     }
 
 
@@ -6211,7 +6003,7 @@ async def get_users():
         users = result.scalars().all()
 
         return [
-            await serialize_user(user, session)
+            serialize_user(user)
             for user in users
         ]
 
@@ -6303,7 +6095,7 @@ async def create_user(
         return {
             "success": True,
             "message": "User added successfully",
-            "user": await serialize_user(user, session),
+            "user": serialize_user(user),
         }
 
 
@@ -6417,7 +6209,7 @@ async def update_user(
         return {
             "success": True,
             "message": "User updated successfully",
-            "user": await serialize_user(user, session),
+            "user": serialize_user(user),
         }
 
 
@@ -6460,44 +6252,7 @@ async def update_user_status(
                 if user.is_active
                 else "User disabled successfully"
             ),
-            "user": await serialize_user(user, session),
-        }
-
-
-@app.post("/users/{user_id}/force-logout")
-async def force_logout_user(
-    request: Request,
-    user_id: int,
-):
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(User).where(User.id == user_id)
-        )
-        user = result.scalar_one_or_none()
-
-        if not user:
-            raise HTTPException(
-                status_code=404,
-                detail="User not found",
-            )
-
-        # Invalidate all currently issued application sessions.
-        user.session_version = int(getattr(user, "session_version", 0)) + 1
-
-        session_result = await session.execute(
-            select(UserSession).where(
-                UserSession.user_id == user.id
-            )
-        )
-        sessions = session_result.scalars().all()
-        for session_record in sessions:
-            await session.delete(session_record)
-
-        await session.commit()
-
-        return {
-            "success": True,
-            "message": f"User {user.username} was logged out from all active devices.",
+            "user": serialize_user(user),
         }
 
 
@@ -6690,29 +6445,9 @@ async def login(
 
         normalized_role = normalize_role(user.role)
 
-        user_agent = request.headers.get("user-agent")
-        session_token = secrets.token_urlsafe(32)
-        now = datetime.now(timezone.utc)
-
-        session_record = UserSession(
-            user_id=user.id,
-            session_token=session_token,
-            user_agent=user_agent,
-            created_at=now,
-            last_activity_at=now,
-        )
-        session.add(session_record)
-        await session.flush()
-
         request.session["user_id"] = user.id
         request.session["username"] = user.username
         request.session["role"] = normalized_role
-        request.session["session_token"] = session_token
-        request.session["session_version"] = getattr(
-            user, "session_version", 0
-        )
-
-        await session.commit()
 
         return {
 
@@ -6783,53 +6518,17 @@ async def auth_me(request: Request):
 
         normalized_role = normalize_role(user.role)
 
-        session_token = request.session.get("session_token")
-        now = datetime.now(timezone.utc)
-        user.last_activity_at = now
-
-        if session_token:
-            session_result = await session.execute(
-                select(UserSession).where(
-                    UserSession.session_token == str(session_token),
-                    UserSession.user_id == user.id,
-                )
-            )
-            session_record = session_result.scalar_one_or_none()
-            if session_record:
-                session_record.last_activity_at = now
-
         request.session["role"] = normalized_role
         request.session["username"] = user.username
-        request.session["session_version"] = getattr(
-            user, "session_version", 0
-        )
-
-        await session.commit()
 
         return {
             "authenticated": True,
-            "user": await serialize_user(user, session),
+            "user": serialize_user(user),
         }
 
 
 @app.post("/logout")
 async def logout(request: Request):
-    user_id = request.session.get("user_id")
-    session_token = request.session.get("session_token")
-
-    async with AsyncSessionLocal() as session:
-        if user_id and session_token:
-            result = await session.execute(
-                select(UserSession).where(
-                    UserSession.user_id == int(user_id),
-                    UserSession.session_token == str(session_token),
-                )
-            )
-            session_record = result.scalar_one_or_none()
-            if session_record:
-                await session.delete(session_record)
-                await session.commit()
-
     request.session.clear()
 
     return {
