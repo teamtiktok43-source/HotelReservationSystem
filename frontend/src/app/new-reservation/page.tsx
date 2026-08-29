@@ -359,6 +359,9 @@ export default function NewReservationPage() {
   const [roomTypeSearchByIndex, setRoomTypeSearchByIndex] =
     useState<Record<number, string>>({});
 
+  const [roomTypeDropdownOpenByIndex, setRoomTypeDropdownOpenByIndex] =
+    useState<Record<number, boolean>>({});
+
   const [nationalitySearch, setNationalitySearch] =
     useState("");
 
@@ -2091,6 +2094,14 @@ setEmailMessage(
                                   );
                                 })()
                               }
+                              onFocus={() => {
+                                setRoomTypeDropdownOpenByIndex(
+                                  (current) => ({
+                                    ...current,
+                                    [index]: true,
+                                  })
+                                );
+                              }}
                               onChange={(e) => {
                                 setRoomTypeSearchByIndex(
                                   (current) => ({
@@ -2099,6 +2110,23 @@ setEmailMessage(
                                       e.target.value,
                                   })
                                 );
+
+                                setRoomTypeDropdownOpenByIndex(
+                                  (current) => ({
+                                    ...current,
+                                    [index]: true,
+                                  })
+                                );
+                              }}
+                              onBlur={() => {
+                                window.setTimeout(() => {
+                                  setRoomTypeDropdownOpenByIndex(
+                                    (current) => ({
+                                      ...current,
+                                      [index]: false,
+                                    })
+                                  );
+                                }, 150);
                               }}
                               placeholder={
                                 loadingRoomTypes
@@ -2109,7 +2137,8 @@ setEmailMessage(
                               disabled={loadingRoomTypes}
                             />
 
-                            {(
+                            {roomTypeDropdownOpenByIndex[index] &&
+                            (
                               selectedRoomSearchValues[
                                 index
                               ] || ""
@@ -2185,6 +2214,13 @@ setEmailMessage(
                                               ...current,
                                               [index]:
                                                 "",
+                                            })
+                                          );
+
+                                          setRoomTypeDropdownOpenByIndex(
+                                            (current) => ({
+                                              ...current,
+                                              [index]: false,
                                             })
                                           );
                                         }}
