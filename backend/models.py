@@ -719,10 +719,12 @@ class User(Base):
         default=lambda: datetime.now(timezone.utc)
     )
 
-
-# =========================================================
-# Email Settings
-# =========================================================
+    # Monotonic version used to invalidate all authenticated sessions.
+    session_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0
+    )
 
 
     permissions: Mapped[list["UserPermission"]] = relationship(
@@ -731,6 +733,57 @@ class User(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
+
+
+# =========================================================
+# User Sessions
+# =========================================================
+
+class UserSession(Base):
+    """Track authenticated browser/device sessions for multi-device presence."""
+
+    __tablename__ = "user_sessions"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+
+    session_token: Mapped[str] = mapped_column(
+        String(128),
+        unique=True,
+        index=True,
+        nullable=False
+    )
+
+    user_agent: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc)
+    )
+
+    last_activity_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc)
+    )
+
+
+# =========================================================
+# Email Settings
+# =========================================================
 
 class EmailSettings(Base):
     __tablename__ = "email_settings"

@@ -519,6 +519,46 @@ async def authorization_middleware(request: Request, call_next):
             content={"detail": "This user is inactive"},
         )
 
+    current_session_version = int(
+        getattr(current_user, "session_version", 0) or 0
+    )
+    cookie_session_version = request.session.get("session_version")
+
+    if cookie_session_version is None:
+        request.session["session_version"] = current_session_version
+    else:
+        try:
+            if int(cookie_session_version) != current_session_version:
+                request.session.clear()
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Authentication required"},
+                )
+        except (TypeError, ValueError):
+            request.session.clear()
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Authentication required"},
+            )
+
+    session_token = request.session.get("session_token")
+    if session_token:
+        async with AsyncSessionLocal() as activity_session:
+            await activity_session.execute(
+                text("""
+                    UPDATE user_sessions_v2
+                    SET last_activity_at = :last_activity_at
+                    WHERE user_id = :user_id
+                      AND session_token = :session_token
+                """),
+                {
+                    "last_activity_at": datetime.now(timezone.utc),
+                    "user_id": current_user.id,
+                    "session_token": str(session_token),
+                },
+            )
+            await activity_session.commit()
+
     normalized_role = normalize_role(current_user.role)
 
     request.session["user_id"] = current_user.id
@@ -1678,6 +1718,37 @@ async def migrate_database():
 
     migrations = [
 
+        # =====================================================
+        # Users - multi-device session support
+        # =====================================================
+        (
+            "user_session_version",
+            """
+            ALTER TABLE users
+            ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0
+            """
+        ),
+        (
+            "user_sessions_v2_table",
+            """
+            CREATE TABLE IF NOT EXISTS user_sessions_v2 (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL
+                    REFERENCES users(id) ON DELETE CASCADE,
+                session_token VARCHAR(128) NOT NULL UNIQUE,
+                user_agent TEXT,
+                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_activity_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        ),
+        (
+            "user_sessions_v2_user_id_index",
+            """
+            CREATE INDEX IF NOT EXISTS ix_user_sessions_v2_user_id
+            ON user_sessions_v2(user_id)
+            """
+        ),
         # =====================================================
         # Reservations - new fields
         # =====================================================
@@ -5982,7 +6053,44 @@ async def get_reservation_print_history(
 # Users
 # =========================================================
 
-def serialize_user(user: User):
+async def serialize_user(user: User, session):
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=15)
+
+    active_result = await session.execute(
+        text("""
+            SELECT COUNT(*)
+            FROM user_sessions_v2
+            WHERE user_id = :user_id
+              AND last_activity_at >= :cutoff
+        """),
+        {"user_id": user.id, "cutoff": cutoff},
+    )
+    active_sessions = int(active_result.scalar() or 0)
+
+    last_login_result = await session.execute(
+        text("""
+            SELECT created_at
+            FROM user_sessions_v2
+            WHERE user_id = :user_id
+            ORDER BY created_at DESC
+            LIMIT 1
+        """),
+        {"user_id": user.id},
+    )
+    last_login_at = last_login_result.scalar_one_or_none()
+
+    last_activity_result = await session.execute(
+        text("""
+            SELECT last_activity_at
+            FROM user_sessions_v2
+            WHERE user_id = :user_id
+            ORDER BY last_activity_at DESC
+            LIMIT 1
+        """),
+        {"user_id": user.id},
+    )
+    last_activity_at = last_activity_result.scalar_one_or_none()
+
     return {
         "id": user.id,
         "username": user.username,
@@ -5990,6 +6098,10 @@ def serialize_user(user: User):
         "role": normalize_role(user.role),
         "is_active": user.is_active,
         "created_at": user.created_at,
+        "last_login_at": last_login_at,
+        "last_activity_at": last_activity_at,
+        "active_sessions": active_sessions,
+        "online": active_sessions > 0,
     }
 
 
@@ -6003,7 +6115,7 @@ async def get_users():
         users = result.scalars().all()
 
         return [
-            serialize_user(user)
+            await serialize_user(user, session)
             for user in users
         ]
 
@@ -6256,6 +6368,39 @@ async def update_user_status(
         }
 
 
+@app.post("/users/{user_id}/force-logout")
+async def force_logout_user(
+    request: Request,
+    user_id: int,
+):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(User).where(User.id == user_id)
+        )
+        user = result.scalar_one_or_none()
+
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail="User not found",
+            )
+
+        user.session_version = int(
+            getattr(user, "session_version", 0) or 0
+        ) + 1
+
+        await session.execute(
+            text("DELETE FROM user_sessions_v2 WHERE user_id = :user_id"),
+            {"user_id": user.id},
+        )
+        await session.commit()
+
+        return {
+            "success": True,
+            "message": f"User {user.username} was logged out from all active devices.",
+        }
+
+
 @app.delete("/users/{user_id}")
 async def delete_user(
     request: Request,
@@ -6444,10 +6589,34 @@ async def login(
             )
 
         normalized_role = normalize_role(user.role)
+        session_token = secrets.token_urlsafe(32)
+        now = datetime.now(timezone.utc)
+
+        await session.execute(
+            text("""
+                INSERT INTO user_sessions_v2 (
+                    user_id, session_token, user_agent, created_at, last_activity_at
+                )
+                VALUES (:user_id, :session_token, :user_agent, :created_at, :last_activity_at)
+            """),
+            {
+                "user_id": user.id,
+                "session_token": session_token,
+                "user_agent": request.headers.get("user-agent"),
+                "created_at": now,
+                "last_activity_at": now,
+            },
+        )
 
         request.session["user_id"] = user.id
         request.session["username"] = user.username
         request.session["role"] = normalized_role
+        request.session["session_token"] = session_token
+        request.session["session_version"] = int(
+            getattr(user, "session_version", 0) or 0
+        )
+
+        await session.commit()
 
         return {
 
@@ -6517,18 +6686,57 @@ async def auth_me(request: Request):
             )
 
         normalized_role = normalize_role(user.role)
+        session_token = request.session.get("session_token")
+
+        if session_token:
+            await session.execute(
+                text("""
+                    UPDATE user_sessions_v2
+                    SET last_activity_at = :last_activity_at
+                    WHERE user_id = :user_id
+                      AND session_token = :session_token
+                """),
+                {
+                    "last_activity_at": datetime.now(timezone.utc),
+                    "user_id": user.id,
+                    "session_token": str(session_token),
+                },
+            )
 
         request.session["role"] = normalized_role
         request.session["username"] = user.username
+        request.session["session_version"] = int(
+            getattr(user, "session_version", 0) or 0
+        )
+
+        await session.commit()
 
         return {
             "authenticated": True,
-            "user": serialize_user(user),
+            "user": await serialize_user(user, session),
         }
 
 
 @app.post("/logout")
 async def logout(request: Request):
+    user_id = request.session.get("user_id")
+    session_token = request.session.get("session_token")
+
+    if user_id and session_token:
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                text("""
+                    DELETE FROM user_sessions_v2
+                    WHERE user_id = :user_id
+                      AND session_token = :session_token
+                """),
+                {
+                    "user_id": int(user_id),
+                    "session_token": str(session_token),
+                },
+            )
+            await session.commit()
+
     request.session.clear()
 
     return {
