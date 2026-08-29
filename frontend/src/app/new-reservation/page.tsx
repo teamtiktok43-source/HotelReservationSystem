@@ -1454,6 +1454,7 @@ setEmailMessage(
     setExchangeRate("");
 
     setGuestRequests("");
+    setRoomTypeSearchByIndex({});
 
     setSavedReservation(
       null
@@ -1467,205 +1468,319 @@ setEmailMessage(
   return (
     <main
       dir="ltr"
-      className="min-h-screen bg-[#0b1220] text-white"
+      className="min-h-screen bg-[#070d18] text-white"
     >
-      {/* =================================================
+      {/* =====================================================
           Header
-      ================================================= */}
+      ===================================================== */}
+      <header className="border-b border-slate-800/80 bg-[#091126]">
+        <div className="mx-auto flex max-w-[1500px] items-center justify-between px-4 py-4 sm:px-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-violet-500/30 bg-violet-500/10 text-2xl">
+              🏨
+            </div>
 
-      <header className="border-b border-slate-800 bg-[#0f172a]">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
-          <div>
-            <h1 className="text-2xl font-bold">
-              New Reservation
-            </h1>
-
-            <p className="mt-1 text-sm text-slate-400">
-              Create a New Reservation in the system
-            </p>
+            <div>
+              <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
+                Hotel Reservation
+              </h1>
+              <p className="text-xs text-slate-500 sm:text-sm">
+                New Booking / Reservation Entry
+              </p>
+            </div>
           </div>
 
           <Link
             href="/reservations"
-            className="rounded-xl border border-slate-700 bg-slate-800 px-5 py-2.5 text-sm font-medium transition hover:bg-slate-700"
+            className="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-violet-500/50 hover:bg-slate-800"
           >
-            Back to Reservations
+            ← Reservations
           </Link>
         </div>
       </header>
 
-      {/* =================================================
-          Content
-      ================================================= */}
-
-      <section className="mx-auto max-w-6xl px-6 py-8">
-        <form
-          onSubmit={handleSubmit}
-          className="space-y-6"
-        >
-          {/* =================================================
-              Reservation Information
-          ================================================= */}
-
-          <div className="rounded-2xl border border-slate-800 bg-[#111827] p-6">
-            <h2 className="mb-6 border-b border-slate-800 pb-4 text-lg font-bold">
-              📋 Reservation Information
-            </h2>
-
-            <div className="grid gap-5 md:grid-cols-2">
-              {/* Booking Number */}
-
-              <Field label="Booking Number *">
-                <input
-                  type="text"
-                  value={
-                    bookingNumber
-                  }
-                  onChange={(e) =>
-                    setBookingNumber(
-                      e.target.value
-                    )
-                  }
-                  placeholder="Example: TEST-1004"
-                  className={
-                    inputClass
-                  }
-                />
-              </Field>
-
-              {/* Hotel */}
-
-              <Field
-                label="Hotel *"
-                hint={
-                  selectedHotel?.email
-                    ? `✉ ${selectedHotel.email}`
-                    : "Type part of the hotel name or click to browse"
-                }
-              >
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={
-                      hotelSearch ||
-                      selectedHotel?.name ||
-                      ""
-                    }
-                    onFocus={() => {
-                      if (selectedHotel && !hotelSearch) {
-                        setHotelSearch("");
-                      }
-                      setHotelDropdownOpen(true);
-                    }}
-                    onChange={(e) => {
-                      const value = e.target.value;
-
-                      setHotelSearch(value);
-                      setHotelId("");
-                      setHotelDropdownOpen(true);
-                    }}
-                    onBlur={() => {
-                      window.setTimeout(() => {
-                        setHotelDropdownOpen(false);
-                      }, 150);
-                    }}
-                    placeholder={
-                      loadingHotels
-                        ? "Loading hotels..."
-                        : "Search or select hotel..."
-                    }
-                    disabled={loadingHotels}
-                    className={inputClass}
-                    autoComplete="off"
-                  />
-
-                  {hotelDropdownOpen && !loadingHotels && (
-                    <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-60 overflow-y-auto rounded-xl border border-slate-700 bg-[#0b1220] shadow-2xl">
-                      {filteredHotels.length > 0 ? (
-                        filteredHotels.map((hotel) => (
-                          <button
-                            key={hotel.id}
-                            type="button"
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              setHotelId(String(hotel.id));
-                              setHotelSearch("");
-                              setHotelDropdownOpen(false);
-                            }}
-                            className={`block w-full px-4 py-3 text-left text-sm transition hover:bg-slate-800 ${
-                              hotel.id === Number(hotelId)
-                                ? "bg-blue-500/10 text-blue-300"
-                                : "text-slate-200"
-                            }`}
-                          >
-                            {hotel.name}
-                          </button>
-                        ))
-                      ) : (
-                        <div className="px-4 py-3 text-sm text-slate-500">
-                          No hotel found for "{hotelSearch}"
-                        </div>
-                      )}
-                    </div>
-                  )}
+      {/* =====================================================
+          Reservation Form
+      ===================================================== */}
+      <section className="mx-auto max-w-[1500px] px-3 py-4 sm:px-6 sm:py-6">
+        <form onSubmit={handleSubmit}>
+          <div className="overflow-hidden rounded-2xl border border-violet-500/40 bg-[#0b1428] shadow-2xl shadow-black/30">
+            {/* Title Bar */}
+            <div className="border-b border-slate-800 bg-gradient-to-r from-[#111b36] to-[#0b1428] px-4 py-4 sm:px-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-600/20 text-xl">
+                    🗓️
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold sm:text-2xl">
+                      Booking Details
+                    </h2>
+                    <p className="text-xs text-slate-400 sm:text-sm">
+                      Enter the booking information
+                    </p>
+                  </div>
                 </div>
 
-                {selectedHotel &&
-                  !selectedHotel.email && (
-                    <p className="mt-2 text-xs text-amber-400">
-                      ⚠️ This hotel has no registered email address
-                    </p>
-                  )}
-              </Field>
+                <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 px-5 py-2.5">
+                  <span className="text-xs text-violet-300">
+                    Booking ID
+                  </span>
+                  <span className="ml-3 text-lg font-black text-violet-300">
+                    {bookingNumber.trim() || "NEW"}
+                  </span>
+                </div>
+              </div>
+            </div>
 
-              {/* Guest */}
-
-              <Field label="Guest Name *">
-                <input
-                  type="text"
-                  value={
-                    guestName
-                  }
-                  onChange={(e) =>
-                    setGuestName(
-                      e.target.value
-                    )
-                  }
-                  placeholder="Guest Name"
-                  className={
-                    inputClass
-                  }
-                />
-              </Field>
-
-              {/* Guests */}
-
-              <Field
-                label="Guests"
-                hint="Select a composition or enter adults/children separately"
-              >
-                <div className="space-y-3">
+            {/* Main compact grid */}
+            <div className="grid border-b border-slate-800 lg:grid-cols-2">
+              {/* Left column */}
+              <div className="border-b border-slate-800 lg:border-b-0 lg:border-r">
+                <CompactField label="Booking Number *" icon="▣">
                   <input
                     type="text"
-                    value={guestCountSearch}
-                    onChange={(e) =>
-                      setGuestCountSearch(e.target.value)
-                    }
-                    placeholder="Search (e.g. 3A, 3 Adults, 3A1C)"
-                    className={inputClass}
-                    disabled={loadingGuestCounts}
+                    value={bookingNumber}
+                    onChange={(e) => setBookingNumber(e.target.value)}
+                    placeholder="Enter booking number"
+                    className={compactInputClass}
                   />
+                </CompactField>
 
-                  {guestCountSearch.trim() &&
-                    filteredGuestCounts.length > 0 && (
-                      <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-700 bg-[#0b1220]">
-                        {filteredGuestCounts
-                          .slice(0, 20)
-                          .map((option) => (
+                <CompactField label="Hotel Name *" icon="🏨">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={hotelSearch || selectedHotel?.name || ""}
+                      onFocus={() => {
+                        if (selectedHotel && !hotelSearch) {
+                          setHotelSearch("");
+                        }
+                        setHotelDropdownOpen(true);
+                      }}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setHotelSearch(value);
+                        setHotelId("");
+                        setHotelDropdownOpen(true);
+                      }}
+                      onBlur={() => {
+                        window.setTimeout(() => {
+                          setHotelDropdownOpen(false);
+                        }, 150);
+                      }}
+                      placeholder={
+                        loadingHotels
+                          ? "Loading hotels..."
+                          : "Search or select hotel..."
+                      }
+                      disabled={loadingHotels}
+                      className={compactInputClass}
+                      autoComplete="off"
+                    />
+
+                    {hotelDropdownOpen && !loadingHotels && (
+                      <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-xl border border-slate-700 bg-[#0b1220] shadow-2xl">
+                        {filteredHotels.length > 0 ? (
+                          filteredHotels.map((hotel) => (
+                            <button
+                              key={hotel.id}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setHotelId(String(hotel.id));
+                                setHotelSearch("");
+                                setHotelDropdownOpen(false);
+                              }}
+                              className="block w-full px-4 py-3 text-left text-sm text-slate-200 transition hover:bg-slate-800"
+                            >
+                              {hotel.name}
+                            </button>
+                          ))
+                        ) : (
+                          <div className="px-4 py-3 text-sm text-slate-500">
+                            No hotel found for "{hotelSearch}"
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </CompactField>
+
+                <CompactField label="Total Guests" icon="👥">
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      value={adultCount}
+                      onChange={(e) => {
+                        setAdultCount(e.target.value);
+                        setTotalGuest(e.target.value);
+                        setSelectedGuestCountId("");
+                      }}
+                      placeholder="Adults"
+                      className={compactInputClass}
+                    />
+                    <input
+                      type="number"
+                      min="0"
+                      value={childCount}
+                      onChange={(e) => {
+                        setChildCount(e.target.value);
+                        setSelectedGuestCountId("");
+                      }}
+                      placeholder="Children"
+                      className={compactInputClass}
+                    />
+                  </div>
+                </CompactField>
+
+                <CompactField label="Guest Name *" icon="♙">
+                  <input
+                    type="text"
+                    value={guestName}
+                    onChange={(e) => setGuestName(e.target.value)}
+                    placeholder="Enter guest name"
+                    className={compactInputClass}
+                  />
+                </CompactField>
+
+                <CompactField label="Nationality" icon="⚑">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={nationalityInput}
+                      onFocus={() => setNationalityDropdownOpen(true)}
+                      onChange={(e) => {
+                        setNationalityInput(e.target.value);
+                        setNationalityDropdownOpen(true);
+                      }}
+                      onBlur={() => {
+                        window.setTimeout(() => {
+                          setNationalityDropdownOpen(false);
+                        }, 150);
+                      }}
+                      placeholder="EG or Egypt"
+                      className={`${compactInputClass} uppercase`}
+                      disabled={loadingNationalities}
+                      autoComplete="off"
+                    />
+
+                    {nationalityDropdownOpen &&
+                      nationalityInput.trim() &&
+                      filteredNationalities.length > 0 && (
+                        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-xl border border-slate-700 bg-[#0b1220] shadow-2xl">
+                          {filteredNationalities.slice(0, 20).map((nationality) => (
+                            <button
+                              key={nationality.id}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setNationalityInput(nationality.code);
+                                setNationalityDropdownOpen(false);
+                              }}
+                              className="block w-full px-4 py-3 text-left text-sm text-slate-200 transition hover:bg-slate-800"
+                            >
+                              <span className="font-semibold text-violet-300">
+                                {nationality.code}
+                              </span>
+                              <span className="ml-2">
+                                {nationality.name}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                  </div>
+                </CompactField>
+
+                <CompactField label="Rooms" icon="🛏️">
+                  <input
+                    type="number"
+                    min="1"
+                    max="50"
+                    value={rooms.length}
+                    onChange={(e) => handleRoomCountChange(e.target.value)}
+                    className={compactInputClass}
+                  />
+                </CompactField>
+
+                <CompactField label="Check-In" icon="📅">
+                  <input
+                    type="text"
+                    value={checkInInput}
+                    onChange={(e) => setCheckInInput(e.target.value)}
+                    onBlur={handleCheckInBlur}
+                    placeholder="22/08/26"
+                    className={compactInputClass}
+                  />
+                </CompactField>
+
+                <CompactField label="Check-Out" icon="📅">
+                  <input
+                    type="text"
+                    value={checkOutInput}
+                    onChange={(e) => setCheckOutInput(e.target.value)}
+                    onBlur={handleCheckOutBlur}
+                    placeholder="26/08/26"
+                    className={compactInputClass}
+                  />
+                </CompactField>
+              </div>
+
+              {/* Right column */}
+              <div>
+                <CompactField label="Reservation / Payment Type *" icon="$">
+                  <select
+                    value={reservationType}
+                    onChange={(e) => setReservationType(e.target.value)}
+                    className={compactInputClass}
+                  >
+                    {PAYMENT_TYPES.map((payment) => (
+                      <option
+                        key={payment.value}
+                        value={payment.value}
+                        className="bg-white text-slate-900"
+                      >
+                        {payment.label}
+                      </option>
+                    ))}
+                  </select>
+                </CompactField>
+
+                <CompactField label="Guest Composition" icon="👤">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={
+                        selectedGuestCount
+                          ? `${selectedGuestCount.code} — ${selectedGuestCount.label}`
+                          : guestCountSearch
+                      }
+                      onChange={(e) => {
+                        setGuestCountSearch(e.target.value);
+                        setSelectedGuestCountId("");
+                      }}
+                      placeholder={
+                        loadingGuestCounts
+                          ? "Loading guest counts..."
+                          : "Search e.g. 2A1C"
+                      }
+                      disabled={loadingGuestCounts}
+                      className={compactInputClass}
+                      autoComplete="off"
+                    />
+
+                    {guestCountSearch.trim() &&
+                      !selectedGuestCount &&
+                      filteredGuestCounts.length > 0 && (
+                        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-xl border border-slate-700 bg-[#0b1220] shadow-2xl">
+                          {filteredGuestCounts.slice(0, 20).map((option) => (
                             <button
                               type="button"
                               key={option.id}
-                              onClick={() => {
+                              onMouseDown={(e) => {
+                                e.preventDefault();
                                 setSelectedGuestCountId(String(option.id));
                                 setGuestCountSearch(
                                   `${option.code} — ${option.label}`
@@ -1676,958 +1791,472 @@ setEmailMessage(
                               }}
                               className="block w-full px-4 py-3 text-left text-sm text-slate-200 transition hover:bg-slate-800"
                             >
-                              <span className="font-semibold text-blue-300">
+                              <span className="font-semibold text-violet-300">
                                 {option.code}
                               </span>
-                              <span className="ml-2">
-                                {option.label}
-                              </span>
+                              <span className="ml-2">{option.label}</span>
                             </button>
                           ))}
-                      </div>
-                    )}
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div>
-                      <label className="mb-2 block text-xs font-medium text-slate-400">
-                        Adults
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={adultCount}
-                        onChange={(e) => {
-                          setAdultCount(e.target.value);
-                          setTotalGuest(e.target.value);
-                          setSelectedGuestCountId("");
-                        }}
-                        className={inputClass}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="mb-2 block text-xs font-medium text-slate-400">
-                        Children
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={childCount}
-                        onChange={(e) => {
-                          setChildCount(e.target.value);
-                          setSelectedGuestCountId("");
-                        }}
-                        className={inputClass}
-                      />
-                    </div>
+                        </div>
+                      )}
                   </div>
+                </CompactField>
 
-                  <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-sm">
-                    <span className="text-slate-400">Displayed as: </span>
-                    <span className="font-bold text-blue-300">
-                      {Number(adultCount || 0) > 0
-                        ? `${adultCount} Adult${Number(adultCount || 0) === 1 ? "" : "s"}`
-                        : ""}
-                      {Number(childCount || 0) > 0
-                        ? `${Number(adultCount || 0) > 0 ? " + " : ""}${childCount} Child${Number(childCount || 0) === 1 ? "" : "ren"}`
-                        : Number(adultCount || 0) === 0
-                          ? "0"
-                          : ""}
+                <CompactField label="Nights" icon="◔">
+                  <div className="flex min-h-[42px] items-center justify-between rounded-lg border border-slate-700 bg-[#081126] px-3">
+                    <span className="text-sm text-slate-400">
+                      Stay duration
+                    </span>
+                    <span className="font-bold text-violet-300">
+                      {nights > 0 ? `${nights} Night${nights === 1 ? "" : "s"}` : "-"}
                     </span>
                   </div>
-                </div>
-              </Field>
+                </CompactField>
 
-              {/* Nationality */}
+                <CompactField label="Total Price" icon="💰">
+                  <div className="flex min-h-[42px] items-center justify-between rounded-lg border border-slate-700 bg-[#081126] px-3">
+                    <span className="text-xs text-slate-500">
+                      All rooms
+                    </span>
+                    <span className="font-black text-emerald-300">
+                      {formatNumber(totalPriceUsd)} USD
+                    </span>
+                  </div>
+                </CompactField>
 
-              <Field
-                label="Nationality"
-                hint={
-                  nationalityName
-                    ? `✓ ${nationalityName}`
-                    : "Search by code or country name"
-                }
-              >
-                <div className="space-y-2">
-                  <input
-                    type="text"
-                    value={nationalityInput}
-                    onFocus={() => {
-                      setNationalityDropdownOpen(true);
-                    }}
-                    onChange={(e) => {
-                      setNationalityInput(e.target.value);
-                      setNationalityDropdownOpen(true);
-                    }}
-                    onBlur={() => {
-                      window.setTimeout(() => {
-                        setNationalityDropdownOpen(false);
-                      }, 150);
-                    }}
-                    placeholder="EG or Egypt"
-                    className={`${inputClass} uppercase`}
-                    disabled={loadingNationalities}
-                    autoComplete="off"
-                  />
+                <CompactField label="Price / Night" icon="🏷️">
+                  <div className="flex min-h-[42px] items-center justify-between rounded-lg border border-slate-700 bg-[#081126] px-3">
+                    <span className="text-xs text-slate-500">
+                      Calculated
+                    </span>
+                    <span className="font-bold text-emerald-300">
+                      {totalNightlyUsd !== null
+                        ? `${formatNumber(totalNightlyUsd)} USD`
+                        : "-"}
+                    </span>
+                  </div>
+                </CompactField>
 
-                  {nationalityDropdownOpen &&
-                    nationalityInput.trim() &&
-                    filteredNationalities.length > 0 && (
-                      <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-700 bg-[#0b1220]">
-                        {filteredNationalities
-                          .slice(0, 20)
-                          .map((nationality) => (
-                            <button
-                              type="button"
-                              key={nationality.id}
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                setNationalityInput(nationality.code);
-                                setNationalityDropdownOpen(false);
-                              }}
-                              className="block w-full px-4 py-3 text-left text-sm text-slate-200 transition hover:bg-slate-800"
-                            >
-                              <span className="font-semibold text-blue-300">
-                                {nationality.code}
-                              </span>
-                              <span className="ml-2">
-                                {nationality.name}
-                              </span>
-                            </button>
-                          ))}
-                      </div>
-                    )}
-                </div>
-              </Field>
+                {isCash && (
+                  <CompactField label="Exchange Rate" icon="EGP">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.0001"
+                      value={exchangeRate}
+                      onChange={(e) => setExchangeRate(e.target.value)}
+                      placeholder="51.0000"
+                      className={compactInputClass}
+                    />
+                  </CompactField>
+                )}
 
-              {/* Payment */}
-
-              <Field label="Booking / Payment Type *">
-                <select
-                  value={
-                    reservationType
-                  }
-                  onChange={(e) =>
-                    setReservationType(
-                      e.target.value
-                    )
-                  }
-                  className={
-                    inputClass
-                  }
-                >
-                  {PAYMENT_TYPES.map(
-                    (
-                      payment
-                    ) => (
-                      <option
-                        key={
-                          payment.value
-                        }
-                        value={
-                          payment.value
-                        }
-                      
-                        className="bg-white text-slate-900"
-                      >
-                        {
-                          payment.label
-                        }
-                      </option>
-                    )
-                  )}
-                </select>
-              </Field>
-            </div>
-          </div>
-
-          {/* =================================================
-              Stay
-          ================================================= */}
-
-          <div className="rounded-2xl border border-slate-800 bg-[#111827] p-6">
-            <h2 className="mb-6 border-b border-slate-800 pb-4 text-lg font-bold">
-              📅 Stay Information
-            </h2>
-
-            <div className="grid gap-5 md:grid-cols-2">
-              {/* Check In */}
-
-              <Field
-                label="Check-in"
-                hint="Example: 8/8/26"
-              >
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={
-                      checkInInput
-                    }
-                    onChange={(e) =>
-                      setCheckInInput(
-                        e.target.value
-                      )
-                    }
-                    onBlur={
-                      handleCheckInBlur
-                    }
-                    placeholder="08/08/26"
-                    className={`${inputClass} pl-12`}
-                  />
-
-                  <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-lg">
-                    📅
-                  </span>
-                </div>
-              </Field>
-
-              {/* Check Out */}
-
-              <Field
-                label="Check-out"
-                hint="Example: 12/8/26"
-              >
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={
-                      checkOutInput
-                    }
-                    onChange={(e) =>
-                      setCheckOutInput(
-                        e.target.value
-                      )
-                    }
-                    onBlur={
-                      handleCheckOutBlur
-                    }
-                    placeholder="12/08/26"
-                    className={`${inputClass} pl-12`}
-                  />
-
-                  <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-lg">
-                    📅
-                  </span>
-                </div>
-              </Field>
-            </div>
-
-            {nights > 0 && (
-              <div className="mt-5 rounded-xl border border-blue-500/20 bg-blue-500/10 p-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-300">
-                    Nights
-                  </span>
-
-                  <span className="text-lg font-bold text-blue-300">
-                    {nights} Night
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* =================================================
-              Rooms
-          ================================================= */}
-
-          <div className="rounded-2xl border border-slate-800 bg-[#111827] p-6">
-            <div className="mb-6 flex flex-col gap-2 border-b border-slate-800 pb-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-lg font-bold">
-                  🛏️ Room Information
-                </h2>
-
-                <p className="mt-1 text-xs text-slate-500">
-                  Each room has its own room type, rate plan, and price
-                </p>
-              </div>
-
-              <div className="rounded-full bg-blue-500/10 px-4 py-2 text-sm font-semibold text-blue-300">
-                {rooms.length}{" "}
-                {rooms.length === 1
-                  ? "Room"
-                  : "Rooms"}
+                {isCash && (
+                  <CompactField label="Total in L.E" icon="ج.م">
+                    <div className="flex min-h-[42px] items-center justify-between rounded-lg border border-amber-500/20 bg-amber-500/5 px-3">
+                      <span className="text-xs text-slate-500">
+                        Cash
+                      </span>
+                      <span className="font-bold text-amber-300">
+                        {totalPriceEgp !== null
+                          ? `${formatNumber(totalPriceEgp)} EGP`
+                          : "-"}
+                      </span>
+                    </div>
+                  </CompactField>
+                )}
               </div>
             </div>
 
-            <Field label="Number of Rooms *">
-              <input
-                type="number"
-                min="1"
-                max="50"
-                value={
-                  rooms.length
-                }
-                onChange={(e) =>
-                  handleRoomCountChange(
-                    e.target.value
-                  )
-                }
-                className={
-                  inputClass
-                }
-              />
-            </Field>
+            {/* Rooms Table */}
+            <div className="border-b border-slate-800">
+              <div className="flex flex-col gap-2 border-b border-slate-800 bg-[#0d1830] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                <div>
+                  <h3 className="font-bold text-slate-100">
+                    🛏️ Room Details
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    One row per room. Changing Rooms automatically adds or removes rows.
+                  </p>
+                </div>
 
-            <div className="mt-6 space-y-5">
-              {rooms.map(
-                (
-                  room,
-                  index
-                ) => {
-                  const roomPrice =
-                    room.total_price_usd !==
-                    ""
-                      ? Number(
-                          room.total_price_usd
-                        )
-                      : null;
+                <div className="rounded-lg border border-violet-500/20 bg-violet-500/10 px-3 py-1.5 text-sm font-bold text-violet-300">
+                  {rooms.length} {rooms.length === 1 ? "Room" : "Rooms"}
+                </div>
+              </div>
 
-                  const roomNightlyUsd =
-                    roomPrice !==
-                      null &&
-                    Number.isFinite(
-                      roomPrice
-                    ) &&
-                    nights > 0
-                      ? roomPrice /
-                        nights
-                      : null;
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1050px] border-collapse text-sm">
+                  <thead>
+                    <tr className="bg-[#101d39] text-slate-300">
+                      <th className="border-r border-slate-800 px-3 py-3 text-left font-semibold">
+                        #
+                      </th>
+                      <th className="border-r border-slate-800 px-3 py-3 text-left font-semibold">
+                        Room Type *
+                      </th>
+                      <th className="border-r border-slate-800 px-3 py-3 text-left font-semibold">
+                        Rate Plan *
+                      </th>
+                      <th className="border-r border-slate-800 px-3 py-3 text-left font-semibold">
+                        Total Price
+                      </th>
+                      <th className="border-r border-slate-800 px-3 py-3 text-left font-semibold">
+                        Price / Night
+                      </th>
+                      {isCash && (
+                        <>
+                          <th className="border-r border-slate-800 px-3 py-3 text-left font-semibold">
+                            Total L.E
+                          </th>
+                          <th className="px-3 py-3 text-left font-semibold">
+                            Nightly L.E
+                          </th>
+                        </>
+                      )}
+                    </tr>
+                  </thead>
 
-                  const roomTotalEgp =
-                    isCash &&
-                    roomPrice !==
-                      null &&
-                    Number.isFinite(
-                      roomPrice
-                    ) &&
-                    exchangeRateNumber !==
-                      null &&
-                    Number.isFinite(
-                      exchangeRateNumber
-                    ) &&
-                    exchangeRateNumber >
-                      0
-                      ? roomPrice *
-                        exchangeRateNumber
-                      : null;
+                  <tbody>
+                    {rooms.map((room, index) => {
+                      const roomPrice =
+                        room.total_price_usd !== ""
+                          ? Number(room.total_price_usd)
+                          : null;
 
-                  const roomNightlyEgp =
-                    isCash &&
-                    roomNightlyUsd !==
-                      null &&
-                    exchangeRateNumber !==
-                      null &&
-                    Number.isFinite(
-                      exchangeRateNumber
-                    ) &&
-                    exchangeRateNumber >
-                      0
-                      ? roomNightlyUsd *
-                        exchangeRateNumber
-                      : null;
+                      const roomNightlyUsd =
+                        roomPrice !== null &&
+                        Number.isFinite(roomPrice) &&
+                        nights > 0
+                          ? roomPrice / nights
+                          : null;
 
-                  return (
-                    <div
-                      key={
-                        index
-                      }
-                      className="rounded-2xl border border-slate-700 bg-[#0b1220] p-5"
-                    >
-                      <div className="mb-5 flex items-center justify-between">
-                        <h3 className="text-base font-bold text-blue-300">
-                          Room{" "}
-                          {index +
-                            1}
-                        </h3>
+                      const roomTotalEgp =
+                        isCash &&
+                        roomPrice !== null &&
+                        Number.isFinite(roomPrice) &&
+                        exchangeRateNumber !== null &&
+                        Number.isFinite(exchangeRateNumber) &&
+                        exchangeRateNumber > 0
+                          ? roomPrice * exchangeRateNumber
+                          : null;
 
-                        <span className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-400">
-                          {nights >
-                          0
-                            ? `${nights} Night`
-                            : "Select dates"}
-                        </span>
-                      </div>
+                      const roomNightlyEgp =
+                        isCash &&
+                        roomNightlyUsd !== null &&
+                        exchangeRateNumber !== null &&
+                        Number.isFinite(exchangeRateNumber) &&
+                        exchangeRateNumber > 0
+                          ? roomNightlyUsd * exchangeRateNumber
+                          : null;
 
-                      <div className="grid gap-5 md:grid-cols-2">
-                        {/* Room Type */}
+                      const searchValue =
+                        selectedRoomSearchValues[index] || "";
 
-                        <Field
-                          label="Room Type *"
-                          hint="Search by name or abbreviation"
+                      const selectedRoom = roomTypes.find(
+                        (type) =>
+                          String(type.id) === room.room_type_id
+                      );
+
+                      const filteredRoomTypes =
+                        searchValue.trim()
+                          ? roomTypes.filter((type) =>
+                              roomTypeMatchesSearch(type, searchValue)
+                            )
+                          : [];
+
+                      return (
+                        <tr
+                          key={index}
+                          className="border-t border-slate-800 bg-[#0a1428] transition hover:bg-[#0d1930]"
                         >
-                          <div className="space-y-2">
-                            <input
-                              type="text"
-                              value={
-                                (() => {
-                                  const selected =
-                                    roomTypes.find(
-                                      (type) =>
-                                        String(type.id) ===
-                                        room.room_type_id
-                                    );
+                          <td className="border-r border-slate-800 px-3 py-3 align-top">
+                            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-500/15 font-black text-violet-300">
+                              {index + 1}
+                            </div>
+                          </td>
 
-                                  if (selected) {
-                                    return selected.code
-                                      ? `${selected.code} — ${selected.name}`
-                                      : selected.name;
-                                  }
-
-                                  return (
-                                    selectedRoomSearchValues[
-                                      index
-                                    ] || ""
-                                  );
-                                })()
-                              }
-                              onChange={(e) => {
-                                setRoomTypeSearchByIndex(
-                                  (current) => ({
+                          <td className="border-r border-slate-800 px-3 py-3 align-top">
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={
+                                  searchValue ||
+                                  (selectedRoom
+                                    ? selectedRoom.code
+                                      ? `${selectedRoom.code} — ${selectedRoom.name}`
+                                      : selectedRoom.name
+                                    : "")
+                                }
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setRoomTypeSearchByIndex((current) => ({
                                     ...current,
-                                    [index]:
-                                      e.target.value,
-                                  })
-                                );
-                              }}
-                              placeholder={
-                                loadingRoomTypes
-                                  ? "Loading room types..."
-                                  : "Search room..."
-                              }
-                              className={inputClass}
-                              disabled={loadingRoomTypes}
-                            />
+                                    [index]: value,
+                                  }));
 
-                            {(
-                              selectedRoomSearchValues[
-                                index
-                              ] || ""
-                            ).trim() &&
-                              roomTypes.filter(
-                                (type) =>
-                                  type.name
-                                    .toLowerCase()
-                                    .includes(
-                                      (
-                                        selectedRoomSearchValues[
-                                          index
-                                        ] || ""
-                                      )
-                                        .trim()
-                                        .toLowerCase()
-                                    ) ||
-                                  (type.code || "")
-                                    .toLowerCase()
-                                    .includes(
-                                      (
-                                        selectedRoomSearchValues[
-                                          index
-                                        ] || ""
-                                      )
-                                        .trim()
-                                        .toLowerCase()
-                                    )
-                              ).length > 0 && (
-                                <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-700 bg-[#0b1220]">
-                                  {roomTypes
-                                    .filter(
-                                      (type) =>
-                                        type.name
-                                          .toLowerCase()
-                                          .includes(
-                                            (
-                                              selectedRoomSearchValues[
-                                                index
-                                              ] || ""
-                                            )
-                                              .trim()
-                                              .toLowerCase()
-                                          ) ||
-                                        (type.code || "")
-                                          .toLowerCase()
-                                          .includes(
-                                            (
-                                              selectedRoomSearchValues[
-                                                index
-                                              ] || ""
-                                            )
-                                              .trim()
-                                              .toLowerCase()
-                                          )
-                                    )
-                                    .slice(0, 20)
-                                    .map((type) => (
+                                  if (room.room_type_id) {
+                                    updateRoom(
+                                      index,
+                                      "room_type_id",
+                                      ""
+                                    );
+                                  }
+                                }}
+                                placeholder={
+                                  loadingRoomTypes
+                                    ? "Loading room types..."
+                                    : "Search or enter room type..."
+                                }
+                                disabled={loadingRoomTypes}
+                                className={compactInputClass}
+                                autoComplete="off"
+                              />
+
+                              {searchValue.trim() &&
+                                filteredRoomTypes.length > 0 && (
+                                  <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-xl border border-slate-700 bg-[#0b1220] shadow-2xl">
+                                    {filteredRoomTypes.slice(0, 20).map((type) => (
                                       <button
-                                        type="button"
                                         key={type.id}
-                                        onClick={() => {
+                                        type="button"
+                                        onMouseDown={(e) => {
+                                          e.preventDefault();
                                           updateRoom(
                                             index,
                                             "room_type_id",
-                                            String(
-                                              type.id
-                                            )
+                                            String(type.id)
                                           );
-
                                           setRoomTypeSearchByIndex(
                                             (current) => ({
                                               ...current,
-                                              [index]:
-                                                "",
+                                              [index]: "",
                                             })
                                           );
                                         }}
                                         className="block w-full px-4 py-3 text-left text-sm text-slate-200 transition hover:bg-slate-800"
                                       >
-                                        <span className="font-semibold text-blue-300">
-                                          {type.code ||
-                                            "-"}
+                                        <span className="font-semibold text-violet-300">
+                                          {type.code || "-"}
                                         </span>
                                         <span className="ml-2">
                                           {type.name}
                                         </span>
                                       </button>
                                     ))}
-                                </div>
-                              )}
-                          </div>
-                        </Field>
+                                  </div>
+                                )}
+                            </div>
+                          </td>
 
-                        {/* Rate Plan */}
-
-                        <Field
-                          label="Rate Plan *"
-                          hint="Meal plan"
-                        >
-                          <select
-                            value={
-                              room.rate_plan_id
-                            }
-                            onChange={(
-                              e
-                            ) =>
-                              updateRoom(
-                                index,
-                                "rate_plan_id",
-                                e.target
-                                  .value
-                              )
-                            }
-                            disabled={
-                              loadingRatePlans
-                            }
-                            className={
-                              inputClass
-                            }
-                          >
-                            <option value=""
-                        className="bg-white text-slate-900"
-                      >
-                              {loadingRatePlans
-                                ? "Loading rate plans..."
-                                : "Select Rate Plan"}
-                            </option>
-
-                            {ratePlans.map(
-                              (
-                                rate
-                              ) => (
-                                <option
-                                  key={
-                                    rate.id
-                                  }
-                                  value={
-                                    rate.id
-                                  }
-                                
-                        className="bg-white text-slate-900"
-                      >
-                                  {
-                                    rate.code
-                                  }{" "}
-                                  —{" "}
-                                  {
-                                    rate.name
-                                  }
-                                  {rate.meals
-                                    ? ` — ${rate.meals}`
-                                    : ""}
-                                </option>
-                              )
-                            )}
-                          </select>
-                        </Field>
-
-                        {/* Total Room Price */}
-
-                        <Field
-                          label="Total Room Price *"
-                          hint="USD"
-                        >
-                          <div className="relative">
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={
-                                room.total_price_usd
-                              }
-                              onChange={(
-                                e
-                              ) =>
+                          <td className="border-r border-slate-800 px-3 py-3 align-top">
+                            <select
+                              value={room.rate_plan_id}
+                              onChange={(e) =>
                                 updateRoom(
                                   index,
-                                  "total_price_usd",
-                                  e.target
-                                    .value
+                                  "rate_plan_id",
+                                  e.target.value
                                 )
                               }
-                              placeholder="100.00"
-                              className={`${inputClass} pl-14`}
-                            />
+                              disabled={loadingRatePlans}
+                              className={compactInputClass}
+                            >
+                              <option
+                                value=""
+                                className="bg-white text-slate-900"
+                              >
+                                {loadingRatePlans
+                                  ? "Loading..."
+                                  : "Select Rate Plan"}
+                              </option>
+                              {ratePlans.map((rate) => (
+                                <option
+                                  key={rate.id}
+                                  value={rate.id}
+                                  className="bg-white text-slate-900"
+                                >
+                                  {rate.code} — {rate.name}
+                                  {rate.meals ? ` — ${rate.meals}` : ""}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
 
-                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-500">
-                              USD
-                            </span>
-                          </div>
-                        </Field>
+                          <td className="border-r border-slate-800 px-3 py-3 align-top">
+                            <div className="relative">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={room.total_price_usd}
+                                onChange={(e) =>
+                                  updateRoom(
+                                    index,
+                                    "total_price_usd",
+                                    e.target.value
+                                  )
+                                }
+                                placeholder="0.00"
+                                className={`${compactInputClass} pr-12`}
+                              />
+                              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500">
+                                USD
+                              </span>
+                            </div>
+                          </td>
 
-                        {/* Nightly */}
-
-                        <Field
-                          label="Nightly Rate"
-                          hint="Calculated automatically"
-                        >
-                          <div className="flex min-h-[50px] items-center rounded-xl border border-slate-700 bg-[#111827] px-4">
-                            <span className="font-bold text-emerald-400">
-                              {roomNightlyUsd !==
-                              null
-                                ? `${formatNumber(
-                                    roomNightlyUsd
-                                  )} USD`
+                          <td className="border-r border-slate-800 px-3 py-3 align-top">
+                            <div className="flex min-h-[42px] items-center rounded-lg border border-slate-700 bg-[#081126] px-3 font-bold text-emerald-300">
+                              {roomNightlyUsd !== null
+                                ? `${formatNumber(roomNightlyUsd)} USD`
                                 : "-"}
-                            </span>
-                          </div>
-                        </Field>
-                      </div>
+                            </div>
+                          </td>
 
-                      {/* Cash Room Details */}
+                          {isCash && (
+                            <>
+                              <td className="border-r border-slate-800 px-3 py-3 align-top">
+                                <div className="flex min-h-[42px] items-center rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 font-bold text-amber-300">
+                                  {roomTotalEgp !== null
+                                    ? `${formatNumber(roomTotalEgp)} EGP`
+                                    : "-"}
+                                </div>
+                              </td>
+                              <td className="px-3 py-3 align-top">
+                                <div className="flex min-h-[42px] items-center rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 font-bold text-amber-300">
+                                  {roomNightlyEgp !== null
+                                    ? `${formatNumber(roomNightlyEgp)} EGP`
+                                    : "-"}
+                                </div>
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
-                      {isCash && (
-                        <div className="mt-5 grid gap-4 border-t border-slate-800 pt-5 md:grid-cols-2">
-                          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
-                            <p className="text-xs text-slate-500">
-                              Total Room in L.E
-                            </p>
+            {/* Bottom information */}
+            <div className="grid border-b border-slate-800 lg:grid-cols-[1fr_360px]">
+              <div className="border-b border-slate-800 p-4 lg:border-b-0 lg:border-r">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="text-lg">📝</span>
+                  <h3 className="font-bold">Guest Requests</h3>
+                </div>
 
-                            <p className="mt-2 font-bold text-amber-300">
-                              {roomTotalEgp !==
-                              null
-                                ? `${formatNumber(
-                                    roomTotalEgp
-                                  )} EGP`
-                                : "-"}
-                            </p>
-                          </div>
+                <textarea
+                  value={guestRequests}
+                  onChange={(e) => setGuestRequests(e.target.value)}
+                  rows={3}
+                  placeholder="Example: Late check-in, high floor, twin beds..."
+                  className={`${compactInputClass} resize-none`}
+                />
+              </div>
 
-                          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
-                            <p className="text-xs text-slate-500">
-                              Nightly Rate in L.E
-                            </p>
+              <div className="bg-[#0d1830] p-4">
+                <h3 className="mb-3 font-bold">Reservation Total</h3>
 
-                            <p className="mt-2 font-bold text-amber-300">
-                              {roomNightlyEgp !==
-                              null
-                                ? `${formatNumber(
-                                    roomNightlyEgp
-                                  )} EGP`
-                                : "-"}
-                            </p>
-                          </div>
-                        </div>
-                      )}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-[#081126] px-3 py-2">
+                    <span className="text-xs text-slate-500">Rooms</span>
+                    <span className="font-bold text-slate-200">
+                      {rooms.length}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-[#081126] px-3 py-2">
+                    <span className="text-xs text-slate-500">Nights</span>
+                    <span className="font-bold text-violet-300">
+                      {nights || "-"}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2.5">
+                    <span className="text-xs text-slate-400">Total USD</span>
+                    <span className="text-lg font-black text-emerald-300">
+                      {formatNumber(totalPriceUsd)} USD
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-[#081126] px-3 py-2">
+                    <span className="text-xs text-slate-500">Nightly USD</span>
+                    <span className="font-bold text-emerald-300">
+                      {totalNightlyUsd !== null
+                        ? `${formatNumber(totalNightlyUsd)} USD`
+                        : "-"}
+                    </span>
+                  </div>
+
+                  {isCash && (
+                    <div className="flex items-center justify-between rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+                      <span className="text-xs text-slate-500">Total L.E</span>
+                      <span className="font-bold text-amber-300">
+                        {totalPriceEgp !== null
+                          ? `${formatNumber(totalPriceEgp)} EGP`
+                          : "-"}
+                      </span>
                     </div>
-                  );
-                }
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Messages */}
+            <div className="px-4 py-4 sm:px-5">
+              {error && (
+                <div className="mb-3 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                  {error}
+                </div>
               )}
-            </div>
-          </div>
 
-          {/* =================================================
-              Financial
-          ================================================= */}
-
-          <div className="rounded-2xl border border-slate-800 bg-[#111827] p-6">
-            <div className="mb-6 flex flex-col gap-2 border-b border-slate-800 pb-4 sm:flex-row sm:items-center sm:justify-between">
-              <h2 className="text-lg font-bold">
-                💰 Financial Information
-              </h2>
-
-              <span className="rounded-full bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-300">
-                Base Currency: USD
-              </span>
-            </div>
-
-            <div className="grid gap-5 md:grid-cols-2">
-              <Field
-                label="Total Reservation USD"
-                hint="Calculated from rooms"
-              >
-                <div className="flex min-h-[50px] items-center rounded-xl border border-slate-700 bg-[#0b1220] px-4">
-                  <span className="text-lg font-bold text-emerald-400">
-                    {formatNumber(
-                      totalPriceUsd
-                    )}{" "}
-                    USD
-                  </span>
+              {message && (
+                <div className="mb-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+                  {message}
                 </div>
-              </Field>
+              )}
 
-              <Field
-                label="Total Nightly Price"
-                hint="All rooms"
-              >
-                <div className="flex min-h-[50px] items-center rounded-xl border border-slate-700 bg-[#0b1220] px-4">
-                  <span className="text-lg font-bold text-emerald-400">
-                    {totalNightlyUsd !==
-                    null
-                      ? `${formatNumber(
-                          totalNightlyUsd
-                        )} USD`
-                      : "-"}
-                  </span>
-                </div>
-              </Field>
-            </div>
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  disabled={saving}
+                  className="rounded-xl border border-slate-700 bg-slate-900 px-7 py-3 font-semibold text-slate-200 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  ↻ Reset
+                </button>
 
-            {isCash && (
-              <div className="mt-6 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5">
-                <div className="mb-5">
-                  <h3 className="text-base font-bold text-amber-300">
-                    💵 Cash Information
-                  </h3>
+                <Link
+                  href="/reservations"
+                  className="rounded-xl border border-slate-700 bg-slate-900 px-7 py-3 text-center font-semibold text-slate-200 transition hover:bg-slate-800"
+                >
+                  Cancel
+                </Link>
 
-                  <p className="mt-1 text-xs text-slate-400">
-                    The exchange rate used at reservation creation will be saved.
-                  </p>
-                </div>
-
-                <div className="grid gap-5 md:grid-cols-3">
-                  <Field label="Exchange Rate">
-                    <div className="relative">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.0001"
-                        value={
-                          exchangeRate
-                        }
-                        onChange={(e) =>
-                          setExchangeRate(
-                            e.target.value
-                          )
-                        }
-                        placeholder="51.0000"
-                        className={`${inputClass} pl-12`}
-                      />
-
-                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-500">
-                        EGP
-                      </span>
-                    </div>
-                  </Field>
-
-                  <Field label="Total in L.E">
-                    <div className="flex min-h-[50px] items-center rounded-xl border border-slate-700 bg-[#0b1220] px-4">
-                      <span className="text-lg font-bold text-amber-300">
-                        {totalPriceEgp !==
-                        null
-                          ? `${formatNumber(
-                              totalPriceEgp
-                            )} EGP`
-                          : "-"}
-                      </span>
-                    </div>
-                  </Field>
-
-                  <Field label="Total Nightly Price in L.E">
-                    <div className="flex min-h-[50px] items-center rounded-xl border border-slate-700 bg-[#0b1220] px-4">
-                      <span className="text-lg font-bold text-amber-300">
-                        {totalNightlyEgp !==
-                        null
-                          ? `${formatNumber(
-                              totalNightlyEgp
-                            )} EGP`
-                          : "-"}
-                      </span>
-                    </div>
-                  </Field>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* =================================================
-              Guest Requests
-          ================================================= */}
-
-          <div className="rounded-2xl border border-slate-800 bg-[#111827] p-6">
-            <h2 className="mb-6 border-b border-slate-800 pb-4 text-lg font-bold">
-              📝 Guest Requests
-            </h2>
-
-            <textarea
-              value={
-                guestRequests
-              }
-              onChange={(e) =>
-                setGuestRequests(
-                  e.target.value
-                )
-              }
-              rows={4}
-              placeholder="Example: Late check-in..."
-              className={`${inputClass} resize-none`}
-            />
-          </div>
-
-          {/* =================================================
-              Summary
-          ================================================= */}
-
-          <div className="rounded-2xl border border-slate-800 bg-[#111827] p-6">
-            <h2 className="mb-5 text-lg font-bold">
-              📊 Reservation Summary
-            </h2>
-
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-              <SummaryItem
-                label="Nights"
-                value={
-                  nights > 0
-                    ? `${nights} Night`
-                    : "-"
-                }
-              />
-
-              <SummaryItem
-                label="Rooms"
-                value={String(
-                  rooms.length
-                )}
-              />
-
-              <SummaryItem
-                label="Total USD"
-                value={`${formatNumber(
-                  totalPriceUsd
-                )} USD`}
-              />
-
-              <SummaryItem
-                label="Nightly Rate USD"
-                value={
-                  totalNightlyUsd !==
-                  null
-                    ? `${formatNumber(
-                        totalNightlyUsd
-                      )} USD`
-                    : "-"
-                }
-              />
-
-              <SummaryItem
-                label="Payment Type"
-                value={
-                  PAYMENT_TYPES.find(
-                    (payment) =>
-                      payment.value ===
-                      reservationType
-                  )?.label ||
-                  "-"
-                }
-              />
-            </div>
-
-            {isCash && (
-              <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                <SummaryItem
-                  label="Total L.E"
-                  value={
-                    totalPriceEgp !==
-                    null
-                      ? `${formatNumber(
-                          totalPriceEgp
-                        )} EGP`
-                      : "-"
+                <button
+                  type="submit"
+                  disabled={
+                    saving ||
+                    loadingHotels ||
+                    loadingRoomTypes ||
+                    loadingRatePlans ||
+                    loadingNationalities ||
+                    loadingGuestCounts
                   }
-                />
-
-                <SummaryItem
-                  label="Nightly Rate L.E"
-                  value={
-                    totalNightlyEgp !==
-                    null
-                      ? `${formatNumber(
-                          totalNightlyEgp
-                        )} EGP`
-                      : "-"
-                  }
-                />
+                  className="rounded-xl bg-gradient-to-r from-violet-700 to-violet-600 px-8 py-3 font-bold text-white shadow-lg shadow-violet-950/30 transition hover:from-violet-600 hover:to-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {saving
+                    ? "Saving reservation..."
+                    : "✓ Save Booking"}
+                </button>
               </div>
-            )}
-          </div>
-
-          {/* =================================================
-              Messages
-          ================================================= */}
-
-          {error && (
-            <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-5 py-4 text-sm text-red-300">
-              {error}
             </div>
-          )}
-
-          {message && (
-            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-5 py-4 text-sm text-emerald-300">
-              {message}
-            </div>
-          )}
-
-          {/* =================================================
-              Actions
-          ================================================= */}
-
-          <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
-            <Link
-              href="/reservations"
-              className="rounded-xl border border-slate-700 bg-slate-800 px-7 py-3 text-center font-semibold transition hover:bg-slate-700"
-            >
-              Cancel
-            </Link>
-
-            <button
-              type="submit"
-              disabled={
-                saving ||
-                loadingHotels ||
-                loadingRoomTypes ||
-                loadingRatePlans ||
-                loadingNationalities ||
-                loadingGuestCounts
-              }
-              className="rounded-xl bg-blue-600 px-7 py-3 font-semibold text-white shadow-lg shadow-blue-950/30 transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {saving
-                ? "Saving reservation..."
-                : "Save Reservation"}
-            </button>
           </div>
         </form>
       </section>
-
       {/* =====================================================
           Email Confirmation Modal
       ===================================================== */}
@@ -2832,53 +2461,31 @@ setEmailMessage(
 // Reusable Components
 // =========================================================
 
-const inputClass =
-  "w-full rounded-xl border border-slate-700 bg-[#0b1220] px-4 py-3 text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20";
+const compactInputClass =
+  "w-full min-h-[42px] rounded-lg border border-slate-700 bg-[#081126] px-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 disabled:cursor-not-allowed disabled:opacity-60";
 
-function Field({
+function CompactField({
   label,
-  hint,
+  icon,
   children,
 }: {
   label: string;
-  hint?: string;
+  icon: string;
   children: React.ReactNode;
 }) {
   return (
-    <div>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <label className="block text-sm font-medium text-slate-300">
+    <div className="grid min-h-[66px] grid-cols-[minmax(165px,0.8fr)_minmax(0,1.5fr)] items-center gap-3 border-b border-slate-800 px-4 py-2.5 sm:grid-cols-[190px_minmax(0,1fr)] sm:px-5">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600/15 text-sm font-bold text-violet-300">
+          {icon}
+        </span>
+        <span className="truncate text-sm font-medium text-slate-200">
           {label}
-        </label>
-
-        {hint && (
-          <span className="text-xs text-slate-500">
-            {hint}
-          </span>
-        )}
+        </span>
       </div>
-
-      {children}
-    </div>
-  );
-}
-
-function SummaryItem({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-xl border border-slate-800 bg-[#0b1220] p-4">
-      <p className="text-xs text-slate-500">
-        {label}
-      </p>
-
-      <p className="mt-2 font-bold text-slate-100">
-        {value}
-      </p>
+      <div className="min-w-0">
+        {children}
+      </div>
     </div>
   );
 }
