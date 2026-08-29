@@ -272,6 +272,28 @@ function roomTypeMatchesSearch(room: RoomType, search: string) {
   );
 }
 
+async function ensureRoomTypeExists(searchValue: string): Promise<RoomType> {
+  const name = searchValue.trim();
+
+  if (!name) {
+    throw new Error("Room type name is required.");
+  }
+
+  const data = await apiPost<{
+    success: boolean;
+    message: string;
+    room_type: RoomType;
+  }>("/room-types/ensure", {
+    name,
+  });
+
+  if (!data?.room_type?.id) {
+    throw new Error("The Room Type could not be created or found.");
+  }
+
+  return data.room_type;
+}
+
 function formatGuestComposition(adults: number, children: number) {
   const parts: string[] = [];
 
@@ -1087,9 +1109,12 @@ setRatePlans(
       const room =
         rooms[index];
 
-      if (!room.room_type_id) {
+      if (
+        !room.room_type_id &&
+        !(selectedRoomSearchValues[index] || "").trim()
+      ) {
         setError(
-          `Please select room type number ${
+          `Please select or enter room type number ${
             index + 1
           }`
         );
@@ -1153,6 +1178,41 @@ setRatePlans(
     try {
       setSaving(true);
 
+      const resolvedRoomTypeIds = rooms.map(
+        (room) => room.room_type_id
+      );
+
+      for (
+        let index = 0;
+        index < rooms.length;
+        index++
+      ) {
+        if (resolvedRoomTypeIds[index]) {
+          continue;
+        }
+
+        const searchValue = (
+          selectedRoomSearchValues[index] || ""
+        ).trim();
+
+        const ensuredRoomType =
+          await ensureRoomTypeExists(searchValue);
+
+        resolvedRoomTypeIds[index] = String(
+          ensuredRoomType.id
+        );
+
+        setRoomTypes(
+          (currentRoomTypes) =>
+            currentRoomTypes.some(
+              (type) =>
+                type.id === ensuredRoomType.id
+            )
+              ? currentRoomTypes
+              : [...currentRoomTypes, ensuredRoomType]
+        );
+      }
+
       const createdBy =
         getCurrentUserName();
 
@@ -1195,10 +1255,10 @@ setRatePlans(
 
         rooms:
           rooms.map(
-            (room) => ({
+            (room, index) => ({
               room_type_id:
                 Number(
-                  room.room_type_id
+                  resolvedRoomTypeIds[index]
                 ),
 
               rate_plan_id:
