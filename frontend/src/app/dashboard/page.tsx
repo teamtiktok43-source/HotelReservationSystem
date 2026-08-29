@@ -829,9 +829,6 @@ export default function Dashboard() {
                 Welcome to the Hotel Reservation System
               </p>
 
-              <p className="mt-1 text-xs font-medium text-teal-400">
-                Created by Mostafa Amer
-              </p>
             </div>
 
             <button
@@ -848,6 +845,12 @@ export default function Dashboard() {
                 ? "Refreshing..."
                 : "🔄 Refresh Data"}
             </button>
+          </div>
+
+          <div className="mb-6 text-center">
+            <p className="text-xl font-bold text-teal-400 sm:text-2xl">
+              Created by Mostafa Amer
+            </p>
           </div>
 
           {/* Error */}
