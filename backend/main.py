@@ -6207,7 +6207,7 @@ async def create_user(
         return {
             "success": True,
             "message": "User added successfully",
-            "user": serialize_user(user),
+            "user": await serialize_user(user, session),
         }
 
 
@@ -6321,7 +6321,7 @@ async def update_user(
         return {
             "success": True,
             "message": "User updated successfully",
-            "user": serialize_user(user),
+            "user": await serialize_user(user, session),
         }
 
 
@@ -6364,7 +6364,7 @@ async def update_user_status(
                 if user.is_active
                 else "User disabled successfully"
             ),
-            "user": serialize_user(user),
+            "user": await serialize_user(user, session),
         }
 
 
