@@ -164,7 +164,8 @@ export default function InvoicePrintPage() {
   const [receiptMessage, setReceiptMessage] = useState("");
   const [savingReceipt, setSavingReceipt] = useState(false);
   const [deletingReceipt, setDeletingReceipt] = useState(false);
-  const [printing, setPrinting] = useState<"preview" | "print" | null>(null);
+  const [printing, setPrinting] = useState<"preview" | "print" | "pdf" | null>(null);
+  const [pdfSaveDialogOpen, setPdfSaveDialogOpen] = useState(false);
 
   const rooms = reservation?.rooms || [];
 
@@ -399,6 +400,363 @@ export default function InvoicePrintPage() {
       }
     } catch (printError) {
       console.error(printError);
+    } finally {
+      window.setTimeout(() => {
+        setPrinting(null);
+      }, 500);
+    }
+  }
+
+  async function loadExternalScript(src: string, globalName: string) {
+    if ((window as unknown as Record<string, unknown>)[globalName]) {
+      return;
+    }
+
+    const existingScript = document.querySelector<HTMLScriptElement>(
+      `script[data-pdf-lib="${globalName}"]`
+    );
+
+    if (existingScript) {
+      await new Promise<void>((resolve, reject) => {
+        if ((window as unknown as Record<string, unknown>)[globalName]) {
+          resolve();
+          return;
+        }
+
+        existingScript.addEventListener("load", () => resolve(), { once: true });
+        existingScript.addEventListener(
+          "error",
+          () => reject(new Error(`Could not load ${globalName}.`)),
+          { once: true }
+        );
+      });
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = src;
+      script.async = true;
+      script.dataset.pdfLib = globalName;
+      script.onload = () => resolve();
+      script.onerror = () =>
+        reject(new Error(`Could not load ${globalName}.`));
+      document.head.appendChild(script);
+    });
+  }
+
+  async function handleSavePdf() {
+    if (!reservation) {
+      return;
+    }
+
+    setPrinting("pdf");
+
+    try {
+      const invoiceSheet = document.querySelector<HTMLElement>(".invoice-sheet");
+
+      if (!invoiceSheet) {
+        throw new Error("Invoice sheet is not available.");
+      }
+
+      await loadExternalScript(
+        "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js",
+        "html2canvas"
+      );
+
+      await loadExternalScript(
+        "https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js",
+        "jspdf"
+      );
+
+      if (document.fonts?.ready) {
+        await document.fonts.ready;
+      }
+
+      const images = Array.from(
+        invoiceSheet.querySelectorAll<HTMLImageElement>("img")
+      );
+
+      await Promise.all(
+        images.map((image) => {
+          if (image.complete) {
+            return Promise.resolve();
+          }
+
+          return new Promise<void>((resolve) => {
+            image.addEventListener("load", () => resolve(), { once: true });
+            image.addEventListener("error", () => resolve(), { once: true });
+          });
+        })
+      );
+
+      const html2canvas = (
+        window as Window & {
+          html2canvas?: (
+            element: HTMLElement,
+            options?: Record<string, unknown>
+          ) => Promise<HTMLCanvasElement>;
+        }
+      ).html2canvas;
+
+      const jsPdfConstructor = (
+        window as Window & {
+          jspdf?: {
+            jsPDF?: new (options?: Record<string, unknown>) => {
+              addImage: (
+                imageData: string,
+                format: string,
+                x: number,
+                y: number,
+                width: number,
+                height: number
+              ) => void;
+              output: (type: "blob") => Blob;
+            };
+          };
+        }
+      ).jspdf?.jsPDF;
+
+      if (!html2canvas || !jsPdfConstructor) {
+        throw new Error("PDF libraries could not be loaded.");
+      }
+
+      const canvas = await html2canvas(invoiceSheet, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+        imageTimeout: 15000,
+      });
+
+      const pdf = new jsPdfConstructor({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4",
+        compress: true,
+      });
+
+      const pageWidth = 210;
+      const pageHeight = 297;
+      const margin = 10;
+      const maxWidth = pageWidth - margin * 2;
+      const maxHeight = pageHeight - margin * 2;
+      const sourceRatio = canvas.width / canvas.height;
+
+      let pdfWidth = maxWidth;
+      let pdfHeight = pdfWidth / sourceRatio;
+
+      if (pdfHeight > maxHeight) {
+        pdfHeight = maxHeight;
+        pdfWidth = pdfHeight * sourceRatio;
+      }
+
+      const x = (pageWidth - pdfWidth) / 2;
+      const y = (pageHeight - pdfHeight) / 2;
+
+      pdf.addImage(
+        canvas.toDataURL("image/jpeg", 0.96),
+        "JPEG",
+        x,
+        y,
+        pdfWidth,
+        pdfHeight
+      );
+
+      const blob = pdf.output("blob");
+      const safeBookingNumber = reservation.booking_number.replace(
+        /[^a-zA-Z0-9_-]+/g,
+        "_"
+      );
+      const suggestedName = `Reservation-${safeBookingNumber || "Invoice"}.pdf`;
+
+      const savePicker = (
+        window as Window & {
+          showSaveFilePicker?: (options?: Record<string, unknown>) => Promise<{
+            createWritable: () => Promise<{
+              write: (data: Blob) => Promise<void>;
+              close: () => Promise<void>;
+            }>;
+          }>;
+        }
+      ).showSaveFilePicker;
+
+      if (savePicker) {
+        const fileHandle = await savePicker({
+          suggestedName,
+          types: [
+            {
+              description: "PDF document",
+              accept: {
+                "application/pdf": [".pdf"],
+              },
+            },
+          ],
+        });
+
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+      } else {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = suggestedName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+    } catch (pdfError) {
+      if (pdfError instanceof DOMException && pdfError.name === "AbortError") {
+        return;
+      }
+
+      console.error(pdfError);
+      setError(
+        pdfError instanceof Error
+          ? pdfError.message
+          : "An error occurred while creating the PDF."
+      );
+    } finally {
+      window.setTimeout(() => {
+        setPrinting(null);
+      }, 500);
+    }
+  }
+
+  async function handleSaveImage() {
+    if (!reservation) {
+      return;
+    }
+
+    setPrinting("pdf");
+    setPdfSaveDialogOpen(false);
+
+    try {
+      const invoiceSheet = document.querySelector<HTMLElement>(".invoice-sheet");
+
+      if (!invoiceSheet) {
+        throw new Error("Invoice sheet is not available.");
+      }
+
+      await loadExternalScript(
+        "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js",
+        "html2canvas"
+      );
+
+      if (document.fonts?.ready) {
+        await document.fonts.ready;
+      }
+
+      const images = Array.from(
+        invoiceSheet.querySelectorAll<HTMLImageElement>("img")
+      );
+
+      await Promise.all(
+        images.map((image) => {
+          if (image.complete) {
+            return Promise.resolve();
+          }
+
+          return new Promise<void>((resolve) => {
+            image.addEventListener("load", () => resolve(), { once: true });
+            image.addEventListener("error", () => resolve(), { once: true });
+          });
+        })
+      );
+
+      const html2canvas = (
+        window as unknown as {
+          html2canvas?: (
+            element: HTMLElement,
+            options?: Record<string, unknown>
+          ) => Promise<HTMLCanvasElement>;
+        }
+      ).html2canvas;
+
+      if (!html2canvas) {
+        throw new Error("Image library could not be loaded.");
+      }
+
+      const canvas = await html2canvas(invoiceSheet, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+        imageTimeout: 15000,
+      });
+
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (result) => {
+            if (result) {
+              resolve(result);
+            } else {
+              reject(new Error("Could not create the image file."));
+            }
+          },
+          "image/png"
+        );
+      });
+
+      const safeBookingNumber = reservation.booking_number.replace(
+        /[^a-zA-Z0-9_-]+/g,
+        "_"
+      );
+      const suggestedName = `Reservation-${safeBookingNumber || "Invoice"}.png`;
+
+      const savePicker = (
+        window as unknown as {
+          showSaveFilePicker?: (options?: Record<string, unknown>) => Promise<{
+            createWritable: () => Promise<{
+              write: (data: Blob) => Promise<void>;
+              close: () => Promise<void>;
+            }>;
+          }>;
+        }
+      ).showSaveFilePicker;
+
+      if (savePicker) {
+        const fileHandle = await savePicker({
+          suggestedName,
+          types: [
+            {
+              description: "PNG image",
+              accept: {
+                "image/png": [".png"],
+              },
+            },
+          ],
+        });
+
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+      } else {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = suggestedName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+    } catch (imageError) {
+      if (
+        imageError instanceof DOMException &&
+        imageError.name === "AbortError"
+      ) {
+        return;
+      }
+
+      console.error(imageError);
+      setError(
+        imageError instanceof Error
+          ? imageError.message
+          : "An error occurred while creating the image."
+      );
     } finally {
       window.setTimeout(() => {
         setPrinting(null);
@@ -806,13 +1164,11 @@ export default function InvoicePrintPage() {
 
                       <button
                         type="button"
-                        onClick={() => handlePrint("preview")}
+                        onClick={() => setPdfSaveDialogOpen(true)}
                         disabled={printing !== null}
                         className="rounded-xl bg-rose-600 px-4 py-3 font-bold transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {printing === "preview"
-                          ? "Opening PDF..."
-                          : "📄 Print PDF"}
+                        📄 Save Invoice
                       </button>
 
                       <Link
@@ -827,6 +1183,65 @@ export default function InvoicePrintPage() {
                   </section>
                 </div>
               </aside>
+
+              {pdfSaveDialogOpen && (
+                <div className="no-print fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-5">
+                  <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="save-invoice-title"
+                    className="w-full max-w-md rounded-3xl border border-[#394B58] bg-[#0d182b] p-6 shadow-2xl"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h3 id="save-invoice-title" className="text-xl font-black">
+                          Save Invoice
+                        </h3>
+                        <p className="mt-1 text-sm text-[#9AA8B3]">
+                          Choose the format you want to save on your device.
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setPdfSaveDialogOpen(false)}
+                        className="rounded-lg px-3 py-2 text-[#9AA8B3] transition hover:bg-[#1B2730] hover:text-white"
+                        aria-label="Close"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={handleSaveImage}
+                        disabled={printing !== null}
+                        className="rounded-2xl border border-teal-400/30 bg-teal-500/10 px-4 py-4 text-left transition hover:bg-teal-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <div className="text-2xl">🖼️</div>
+                        <div className="mt-2 font-bold">Save as Image</div>
+                        <div className="mt-1 text-xs text-[#9AA8B3]">
+                          PNG image — choose where to save it.
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleSavePdf}
+                        disabled={printing !== null}
+                        className="rounded-2xl border border-violet-400/30 bg-violet-500/10 px-4 py-4 text-left transition hover:bg-violet-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <div className="text-2xl">📄</div>
+                        <div className="mt-2 font-bold">Save as PDF</div>
+                        <div className="mt-1 text-xs text-[#9AA8B3]">
+                          PDF file — choose where to save it.
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* ===================================================== */}
               {/* Printable Reservation - A4 / Original PDF Structure */}
