@@ -298,9 +298,15 @@ export default function Dashboard() {
         return false;
       }
 
-      if (!response.ok || !data?.user) {
-        localStorage.removeItem("hotel_user");
-        window.location.replace("/");
+      if (!response.ok) {
+        setAuthError(
+          "Could not verify the session. The backend may be temporarily unavailable."
+        );
+        return false;
+      }
+
+      if (!data?.user) {
+        setAuthError("Could not verify the current session.");
         return false;
       }
 
@@ -318,14 +324,14 @@ export default function Dashboard() {
 
       return true;
     } catch (sessionError) {
-      // Any failed session verification must leave the protected dashboard.
-      // This prevents the dashboard from becoming a blank page when the
-      // browser cannot verify the session for any reason.
-      setCurrentUser(null);
-      setAuthError("");
-
-      localStorage.removeItem("hotel_user");
-      window.location.replace("/");
+      // Temporary network/server failures must not log out an already
+      // authenticated user. Only an explicit 401/403 above is treated as
+      // a real authentication failure.
+      setAuthError(
+        sessionError instanceof Error
+          ? sessionError.message
+          : "Could not verify the session. The backend may be temporarily unavailable."
+      );
       return false;
     } finally {
       setUserLoading(false);
