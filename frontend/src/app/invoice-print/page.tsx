@@ -804,6 +804,17 @@ export default function InvoicePrintPage() {
                           : "🖨️ Invoice Printing"}
                       </button>
 
+                      <button
+                        type="button"
+                        onClick={() => handlePrint("preview")}
+                        disabled={printing !== null}
+                        className="rounded-xl bg-rose-600 px-4 py-3 font-bold transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {printing === "preview"
+                          ? "Opening PDF..."
+                          : "📄 Print PDF"}
+                      </button>
+
                       <Link
                         href={`/reservations/${encodeURIComponent(
                           reservation.booking_number
