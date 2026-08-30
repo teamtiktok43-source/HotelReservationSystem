@@ -49,6 +49,16 @@ type GuestCountOption = {
   is_active: boolean;
 };
 
+type BookingPaymentType = {
+  id: number;
+  code: string;
+  source: string;
+  payment_method: string;
+  label: string;
+  is_active: boolean;
+  is_cash?: boolean;
+};
+
 type ReservationRoomForm = {
   room_type_id: string;
   rate_plan_id: string;
@@ -83,57 +93,6 @@ type SavedReservation = {
   email_error: string | null;
 };
 
-
-const PAYMENT_TYPES = [
-  {
-    value: "booking_paid",
-    label: "Booking.com — Paid",
-    source: "Booking.com",
-    cash: false,
-  },
-  {
-    value: "booking_cash",
-    label: "Booking.com — Cash",
-    source: "Booking.com",
-    cash: true,
-  },
-  {
-    value: "expedia_paid",
-    label: "Expedia — Paid",
-    source: "Expedia",
-    cash: false,
-  },
-  {
-    value: "expedia_cash",
-    label: "Expedia — Cash",
-    source: "Expedia",
-    cash: true,
-  },
-  {
-    value: "trip_paid",
-    label: "Trip.com — Paid",
-    source: "Trip.com",
-    cash: false,
-  },
-  {
-    value: "trip_cash",
-    label: "Trip.com — Cash",
-    source: "Trip.com",
-    cash: true,
-  },
-  {
-    value: "agoda_paid",
-    label: "Agoda — Paid",
-    source: "Agoda",
-    cash: false,
-  },
-  {
-    value: "agoda_cash",
-    label: "Agoda — Cash",
-    source: "Agoda",
-    cash: true,
-  },
-];
 
 function parseFlexibleDate(
   value: string
@@ -387,6 +346,11 @@ export default function NewReservationPage() {
     setLoadingRatePlans,
   ] = useState(true);
 
+  const [
+    loadingBookingPaymentTypes,
+    setLoadingBookingPaymentTypes,
+  ] = useState(true);
+
   // =====================================================
   // Reservation Data
   // =====================================================
@@ -456,6 +420,9 @@ export default function NewReservationPage() {
     reservationType,
     setReservationType,
   ] = useState("booking_paid");
+
+  const [bookingPaymentTypes, setBookingPaymentTypes] =
+    useState<BookingPaymentType[]>([]);
 
   const [
     exchangeRate,
@@ -693,6 +660,44 @@ setRatePlans(
   }, []);
 
   // =====================================================
+  // Load Booking / Payment Types
+  // =====================================================
+
+  useEffect(() => {
+    const loadBookingPaymentTypes = async () => {
+      try {
+        setLoadingBookingPaymentTypes(true);
+
+        const data = await apiGet<BookingPaymentType[]>(
+          "/booking-payment-types"
+        );
+
+        const activeTypes = Array.isArray(data)
+          ? data.filter((item) => item.is_active)
+          : [];
+
+        setBookingPaymentTypes(activeTypes);
+
+        setReservationType((current) =>
+          activeTypes.some((item) => item.code === current)
+            ? current
+            : activeTypes[0]?.code || current
+        );
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "An error occurred while loading Booking / Payment types"
+        );
+      } finally {
+        setLoadingBookingPaymentTypes(false);
+      }
+    };
+
+    loadBookingPaymentTypes();
+  }, []);
+
+  // =====================================================
   // Calculations
   // =====================================================
 
@@ -705,10 +710,14 @@ setRatePlans(
     [checkIn, checkOut]
   );
 
+  const selectedBookingPaymentType =
+    bookingPaymentTypes.find(
+      (item) => item.code === reservationType
+    ) || null;
+
   const isCash =
-    reservationType.endsWith(
-      "_cash"
-    );
+    selectedBookingPaymentType?.is_cash ??
+    selectedBookingPaymentType?.payment_method?.toLowerCase() === "cash";
 
   const exchangeRateNumber =
     exchangeRate !== ""
@@ -1451,7 +1460,9 @@ setEmailMessage(
     ]);
 
     setReservationType(
-      "booking_paid"
+      bookingPaymentTypes.find((item) => item.code === "booking_paid")?.code ||
+        bookingPaymentTypes[0]?.code ||
+        "booking_paid"
     );
 
     setExchangeRate("");
@@ -1813,38 +1824,31 @@ setEmailMessage(
 
               <Field label="Booking / Payment Type *">
                 <select
-                  value={
-                    reservationType
-                  }
+                  value={reservationType}
                   onChange={(e) =>
-                    setReservationType(
-                      e.target.value
-                    )
+                    setReservationType(e.target.value)
                   }
-                  className={
-                    inputClass
-                  }
+                  disabled={loadingBookingPaymentTypes}
+                  className={inputClass}
                 >
-                  {PAYMENT_TYPES.map(
-                    (
-                      payment
-                    ) => (
-                      <option
-                        key={
-                          payment.value
-                        }
-                        value={
-                          payment.value
-                        }
-                      
-                        className="bg-white text-slate-900"
-                      >
-                        {
-                          payment.label
-                        }
-                      </option>
-                    )
-                  )}
+                  <option
+                    value=""
+                    className="bg-white text-slate-900"
+                  >
+                    {loadingBookingPaymentTypes
+                      ? "Loading Booking / Payment types..."
+                      : "Select Booking / Payment Type"}
+                  </option>
+
+                  {bookingPaymentTypes.map((payment) => (
+                    <option
+                      key={payment.id}
+                      value={payment.code}
+                      className="bg-white text-slate-900"
+                    >
+                      {payment.label}
+                    </option>
+                  ))}
                 </select>
               </Field>
             </div>
@@ -2591,9 +2595,9 @@ setEmailMessage(
               <SummaryItem
                 label="Payment Type"
                 value={
-                  PAYMENT_TYPES.find(
+                  bookingPaymentTypes.find(
                     (payment) =>
-                      payment.value ===
+                      payment.code ===
                       reservationType
                   )?.label ||
                   "-"

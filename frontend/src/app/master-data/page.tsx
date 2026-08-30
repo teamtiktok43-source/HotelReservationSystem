@@ -16,7 +16,7 @@ import {
   type CurrentUser,
 } from "../lib/api";
 
-type Tab = "nationalities" | "room-types" | "guest-counts" | "rate-plans";
+type Tab = "nationalities" | "room-types" | "guest-counts" | "rate-plans" | "booking-payment-types";
 
 type Message = {
   type: "success" | "error";
@@ -58,6 +58,17 @@ type RatePlan = {
   created_at?: string | null;
 };
 
+type BookingPaymentType = {
+  id: number;
+  code: string;
+  source: string;
+  payment_method: string;
+  label: string;
+  is_active: boolean;
+  is_cash?: boolean;
+  created_at?: string | null;
+};
+
 const TABS: Array<{
   key: Tab;
   label: string;
@@ -82,6 +93,11 @@ const TABS: Array<{
     key: "rate-plans",
     label: "Rate Plans",
     description: "Fixed RO / B.B / H.B / F.B plans",
+  },
+  {
+    key: "booking-payment-types",
+    label: "Booking / Payment Types",
+    description: "Booking sources and payment status options",
   },
 ];
 
@@ -138,6 +154,7 @@ export default function MasterDataPage() {
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
   const [guestCounts, setGuestCounts] = useState<GuestCountOption[]>([]);
   const [ratePlans, setRatePlans] = useState<RatePlan[]>([]);
+  const [bookingPaymentTypes, setBookingPaymentTypes] = useState<BookingPaymentType[]>([]);
 
   const [editingId, setEditingId] = useState<number | null>(null);
 
@@ -155,6 +172,13 @@ export default function MasterDataPage() {
     adults: "1",
     children: "0",
     code: "",
+    label: "",
+  });
+
+  const [bookingPaymentTypeForm, setBookingPaymentTypeForm] = useState({
+    code: "",
+    source: "",
+    payment_method: "Paid",
     label: "",
   });
 
@@ -176,18 +200,27 @@ export default function MasterDataPage() {
       setLoading(true);
       setMessage(null);
 
-      const [nationalityData, roomTypeData, guestCountData, ratePlanData] =
-        await Promise.all([
-          apiGet<Nationality[]>("/nationalities"),
-          apiGet<RoomType[]>("/room-types"),
-          apiGet<GuestCountOption[]>("/guest-count-options"),
-          apiGet<RatePlan[]>("/rate-plans"),
-        ]);
+      const [
+        nationalityData,
+        roomTypeData,
+        guestCountData,
+        ratePlanData,
+        bookingPaymentTypeData,
+      ] = await Promise.all([
+        apiGet<Nationality[]>("/nationalities"),
+        apiGet<RoomType[]>("/room-types"),
+        apiGet<GuestCountOption[]>("/guest-count-options"),
+        apiGet<RatePlan[]>("/rate-plans"),
+        apiGet<BookingPaymentType[]>("/booking-payment-types"),
+      ]);
 
       setNationalities(Array.isArray(nationalityData) ? nationalityData : []);
       setRoomTypes(Array.isArray(roomTypeData) ? roomTypeData : []);
       setGuestCounts(Array.isArray(guestCountData) ? guestCountData : []);
       setRatePlans(Array.isArray(ratePlanData) ? ratePlanData : []);
+      setBookingPaymentTypes(
+        Array.isArray(bookingPaymentTypeData) ? bookingPaymentTypeData : []
+      );
     } catch (error) {
       setMessage({
         type: "error",
@@ -256,6 +289,22 @@ export default function MasterDataPage() {
     );
   }, [guestCounts, search]);
 
+  const filteredBookingPaymentTypes = useMemo(() => {
+    const value = search.trim().toLowerCase();
+
+    if (!value) {
+      return bookingPaymentTypes;
+    }
+
+    return bookingPaymentTypes.filter(
+      (item) =>
+        item.code.toLowerCase().includes(value) ||
+        item.source.toLowerCase().includes(value) ||
+        item.payment_method.toLowerCase().includes(value) ||
+        item.label.toLowerCase().includes(value)
+    );
+  }, [bookingPaymentTypes, search]);
+
   function resetForms() {
     setEditingId(null);
     setNationalityForm({ code: "", name: "" });
@@ -264,6 +313,12 @@ export default function MasterDataPage() {
       adults: "1",
       children: "0",
       code: "",
+      label: "",
+    });
+    setBookingPaymentTypeForm({
+      code: "",
+      source: "",
+      payment_method: "Paid",
       label: "",
     });
   }
@@ -492,6 +547,136 @@ export default function MasterDataPage() {
         text: getErrorText(
           error,
           "Could not save the guest count option."
+        ),
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleBookingPaymentTypeSubmit(
+    event: FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
+    if (!isAdmin) {
+      setMessage({
+        type: "error",
+        text: "Only Manager and IT users can change master data.",
+      });
+      return;
+    }
+
+    const code = bookingPaymentTypeForm.code.trim().toLowerCase();
+    const source = bookingPaymentTypeForm.source.trim();
+    const paymentMethod = bookingPaymentTypeForm.payment_method.trim();
+    const label = bookingPaymentTypeForm.label.trim();
+
+    if (!source) {
+      setMessage({
+        type: "error",
+        text: "Booking source is required.",
+      });
+      return;
+    }
+
+    if (!paymentMethod) {
+      setMessage({
+        type: "error",
+        text: "Payment method is required.",
+      });
+      return;
+    }
+
+    if (!label) {
+      setMessage({
+        type: "error",
+        text: "Label is required.",
+      });
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setMessage(null);
+
+      if (editingId !== null) {
+        await apiPatch(`/booking-payment-types/${editingId}`, {
+          source,
+          payment_method: paymentMethod,
+          label,
+        });
+        setMessage({
+          type: "success",
+          text: "Booking / Payment type updated successfully.",
+        });
+      } else {
+        await apiPost("/booking-payment-types", {
+          code: code || undefined,
+          source,
+          payment_method: paymentMethod,
+          label,
+          is_active: true,
+        });
+        setMessage({
+          type: "success",
+          text: "Booking / Payment type added successfully.",
+        });
+      }
+
+      resetForms();
+      await loadMasterData();
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: getErrorText(
+          error,
+          "Could not save the Booking / Payment type."
+        ),
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function startBookingPaymentTypeEdit(item: BookingPaymentType) {
+    setEditingId(item.id);
+    setBookingPaymentTypeForm({
+      code: item.code,
+      source: item.source,
+      payment_method: item.payment_method,
+      label: item.label,
+    });
+    setMessage(null);
+  }
+
+  async function toggleBookingPaymentType(item: BookingPaymentType) {
+    if (!isAdmin) {
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setMessage(null);
+
+      await apiPatch(`/booking-payment-types/${item.id}`, {
+        is_active: !item.is_active,
+      });
+
+      setMessage({
+        type: "success",
+        text: `"${item.label}" is now ${
+          item.is_active ? "inactive" : "active"
+        }.`,
+      });
+
+      await loadMasterData();
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: getErrorText(
+          error,
+          "Could not change Booking / Payment type status."
         ),
       });
     } finally {
@@ -736,7 +921,9 @@ export default function MasterDataPage() {
                         ? roomTypes.length
                         : tab.key === "guest-counts"
                         ? guestCounts.length
-                        : ratePlans.length}
+                        : tab.key === "rate-plans"
+                        ? ratePlans.length
+                        : bookingPaymentTypes.length}
                     </span>
                   </div>
 
@@ -774,7 +961,9 @@ export default function MasterDataPage() {
                         ? "Search room name or code..."
                         : activeTab === "guest-counts"
                         ? "Search adults, children, code or label..."
-                        : "Search rate plans..."
+                        : activeTab === "rate-plans"
+                        ? "Search rate plans..."
+                        : "Search booking source, method or label..."
                     }
                     className="w-full rounded-xl border border-slate-600 bg-[#0b1220] px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500"
                   />
@@ -1280,6 +1469,207 @@ export default function MasterDataPage() {
                   {!loading && filteredGuestCounts.length === 0 && (
                     <div className="p-12 text-center text-sm text-slate-500">
                       No guest count options match your search.
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            {activeTab === "booking-payment-types" && (
+              <>
+                {isAdmin && (
+                  <form
+                    onSubmit={handleBookingPaymentTypeSubmit}
+                    className="border-b border-slate-700/60 bg-[#0b1220] p-5"
+                  >
+                    <div className="mb-4 flex items-center justify-between">
+                      <div>
+                        <h4 className="font-semibold">
+                          {editingId !== null
+                            ? "Edit Booking / Payment Type"
+                            : "Add Booking / Payment Type"}
+                        </h4>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Manage the booking source and payment status options shown in New Reservation.
+                        </p>
+                      </div>
+
+                      {editingId !== null && (
+                        <button
+                          type="button"
+                          onClick={resetForms}
+                          disabled={saving}
+                          className="rounded-lg border border-slate-600 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800"
+                        >
+                          Cancel Edit
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <input
+                        value={bookingPaymentTypeForm.code}
+                        onChange={(event) =>
+                          setBookingPaymentTypeForm((current) => ({
+                            ...current,
+                            code: event.target.value.toLowerCase(),
+                          }))
+                        }
+                        placeholder="booking_paid"
+                        className={`rounded-xl border px-4 py-3 font-mono text-sm outline-none ${
+                          editingId !== null
+                            ? "cursor-not-allowed border-slate-700 bg-slate-800/60 text-slate-500"
+                            : "border-slate-600 bg-[#111827] text-white focus:border-blue-500"
+                        }`}
+                        disabled={saving || editingId !== null}
+                      />
+
+                      <input
+                        value={bookingPaymentTypeForm.source}
+                        onChange={(event) =>
+                          setBookingPaymentTypeForm((current) => ({
+                            ...current,
+                            source: event.target.value,
+                          }))
+                        }
+                        placeholder="Booking.com"
+                        className="rounded-xl border border-slate-600 bg-[#111827] px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+                        disabled={saving}
+                      />
+
+                      <select
+                        value={bookingPaymentTypeForm.payment_method}
+                        onChange={(event) =>
+                          setBookingPaymentTypeForm((current) => ({
+                            ...current,
+                            payment_method: event.target.value,
+                          }))
+                        }
+                        className="rounded-xl border border-slate-600 bg-[#111827] px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+                        disabled={saving}
+                      >
+                        <option value="Paid" className="bg-white text-slate-900">
+                          Paid
+                        </option>
+                        <option value="Cash" className="bg-white text-slate-900">
+                          Cash
+                        </option>
+                      </select>
+
+                      <input
+                        value={bookingPaymentTypeForm.label}
+                        onChange={(event) =>
+                          setBookingPaymentTypeForm((current) => ({
+                            ...current,
+                            label: event.target.value,
+                          }))
+                        }
+                        placeholder="Booking.com — Paid"
+                        className="rounded-xl border border-slate-600 bg-[#111827] px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+                        disabled={saving}
+                      />
+                    </div>
+
+                    <div className="mt-4">
+                      <button
+                        type="submit"
+                        disabled={saving}
+                        className="rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold hover:bg-blue-500 disabled:opacity-50"
+                      >
+                        {saving
+                          ? "Saving..."
+                          : editingId !== null
+                          ? "Save Changes"
+                          : "Add Booking / Payment Type"}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[900px] text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-700/60 text-slate-400">
+                        <th className="px-5 py-4 text-left font-medium">
+                          Code
+                        </th>
+                        <th className="px-5 py-4 text-left font-medium">
+                          Booking Source
+                        </th>
+                        <th className="px-5 py-4 text-left font-medium">
+                          Payment
+                        </th>
+                        <th className="px-5 py-4 text-left font-medium">
+                          Label
+                        </th>
+                        <th className="px-5 py-4 text-left font-medium">
+                          Status
+                        </th>
+                        {isAdmin && (
+                          <th className="px-5 py-4 text-center font-medium">
+                            Actions
+                          </th>
+                        )}
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {filteredBookingPaymentTypes.map((item) => (
+                        <tr
+                          key={item.id}
+                          className="border-b border-slate-800/70 hover:bg-slate-800/30"
+                        >
+                          <td className="px-5 py-4 font-mono font-semibold text-blue-300">
+                            {item.code}
+                          </td>
+                          <td className="px-5 py-4 font-medium text-white">
+                            {item.source}
+                          </td>
+                          <td className="px-5 py-4">
+                            <span className={item.payment_method.toLowerCase() === "cash" ? "text-yellow-300" : "text-green-300"}>
+                              {item.payment_method}
+                            </span>
+                          </td>
+                          <td className="px-5 py-4 text-slate-200">
+                            {item.label}
+                          </td>
+                          <td className="px-5 py-4">
+                            {renderStatus(item.is_active)}
+                          </td>
+                          {isAdmin && (
+                            <td className="px-5 py-4">
+                              <div className="flex justify-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => startBookingPaymentTypeEdit(item)}
+                                  disabled={saving}
+                                  className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-300 hover:bg-blue-500/20"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleBookingPaymentType(item)}
+                                  disabled={saving}
+                                  className={`rounded-lg border px-3 py-2 text-xs font-semibold ${
+                                    item.is_active
+                                      ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-300 hover:bg-yellow-500/20"
+                                      : "border-green-500/30 bg-green-500/10 text-green-300 hover:bg-green-500/20"
+                                  }`}
+                                >
+                                  {item.is_active ? "Deactivate" : "Activate"}
+                                </button>
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  {!loading && filteredBookingPaymentTypes.length === 0 && (
+                    <div className="p-12 text-center text-sm text-slate-500">
+                      No Booking / Payment types match your search.
                     </div>
                   )}
                 </div>

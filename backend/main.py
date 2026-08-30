@@ -36,6 +36,7 @@ from models import (
     RatePlan,
     Nationality,
     GuestCountOption,
+    BookingPaymentType,
 )
 
 
@@ -440,6 +441,11 @@ def _required_roles_for_request(method: str, path: str) -> set[str] | None:
     if path == "/rate-plans" and method != "GET":
         return {ROLE_MANAGER, ROLE_IT}
 
+    if path == "/booking-payment-types" or path.startswith("/booking-payment-types/"):
+        if method != "GET":
+            return {ROLE_MANAGER, ROLE_IT}
+        return None
+
     # Email/Gmail configuration is Manager/IT only.
     if path == "/email-settings" or path.startswith("/email-settings/"):
         return {ROLE_MANAGER, ROLE_IT}
@@ -830,6 +836,34 @@ class RatePlanCreate(BaseModel):
 
 
 # =========================================================
+# Booking / Payment Type Requests
+# =========================================================
+
+class BookingPaymentTypeCreate(BaseModel):
+
+    code: str | None = None
+
+    source: str
+
+    payment_method: str = "Paid"
+
+    label: str | None = None
+
+    is_active: bool = True
+
+
+class BookingPaymentTypeUpdate(BaseModel):
+
+    source: str | None = None
+
+    payment_method: str | None = None
+
+    label: str | None = None
+
+    is_active: bool | None = None
+
+
+# =========================================================
 # Nationality Mapping
 # =========================================================
 
@@ -969,19 +1003,15 @@ def normalize_nationality(
 # Payment Types
 # =========================================================
 
-ALLOWED_PAYMENT_TYPES = {
-
-    "booking_paid",
-    "booking_cash",
-
-    "expedia_paid",
-    "expedia_cash",
-
-    "trip_paid",
-    "trip_cash",
-
-    "agoda_paid",
-    "agoda_cash",
+DEFAULT_PAYMENT_TYPE_LABELS = {
+    "booking_paid": "Booking.com - Paid",
+    "booking_cash": "Booking.com - Cash",
+    "expedia_paid": "Expedia - Paid",
+    "expedia_cash": "Expedia - Cash",
+    "trip_paid": "Trip.com - Paid",
+    "trip_cash": "Trip.com - Cash",
+    "agoda_paid": "Agoda - Paid",
+    "agoda_cash": "Agoda - Cash",
 }
 
 
@@ -1026,35 +1056,7 @@ def get_payment_label(
     payment_type: str | None
 ):
 
-    labels = {
-
-        "booking_paid":
-            "Booking.com - Paid",
-
-        "booking_cash":
-            "Booking.com - Cash",
-
-        "expedia_paid":
-            "Expedia - Paid",
-
-        "expedia_cash":
-            "Expedia - Cash",
-
-        "trip_paid":
-            "Trip.com - Paid",
-
-        "trip_cash":
-            "Trip.com - Cash",
-
-        "agoda_paid":
-            "Agoda - Paid",
-
-        "agoda_cash":
-            "Agoda - Cash",
-
-    }
-
-    return labels.get(
+    return DEFAULT_PAYMENT_TYPE_LABELS.get(
         payment_type,
         payment_type or "-"
     )
@@ -2462,6 +2464,47 @@ async def seed_default_data():
                         is_active=True,
                     )
                 )
+
+        # =====================================================
+        # Booking / Payment Types
+        # =====================================================
+
+        default_booking_payment_types = [
+            ("booking_paid", "Booking.com", "Paid", "Booking.com — Paid"),
+            ("booking_cash", "Booking.com", "Cash", "Booking.com — Cash"),
+            ("expedia_paid", "Expedia", "Paid", "Expedia — Paid"),
+            ("expedia_cash", "Expedia", "Cash", "Expedia — Cash"),
+            ("trip_paid", "Trip.com", "Paid", "Trip.com — Paid"),
+            ("trip_cash", "Trip.com", "Cash", "Trip.com — Cash"),
+            ("agoda_paid", "Agoda", "Paid", "Agoda — Paid"),
+            ("agoda_cash", "Agoda", "Cash", "Agoda — Cash"),
+        ]
+
+        for code, source, payment_method, label in default_booking_payment_types:
+            result = await session.execute(
+                select(BookingPaymentType).where(
+                    BookingPaymentType.code == code
+                )
+            )
+            existing = result.scalar_one_or_none()
+
+            if not existing:
+                session.add(
+                    BookingPaymentType(
+                        code=code,
+                        source=source,
+                        payment_method=payment_method,
+                        label=label,
+                        is_active=True,
+                    )
+                )
+            else:
+                if not existing.source:
+                    existing.source = source
+                if not existing.payment_method:
+                    existing.payment_method = payment_method
+                if not existing.label:
+                    existing.label = label
 
         # =====================================================
         # Nationalities
@@ -4158,6 +4201,154 @@ async def create_rate_plan(
 
 
 # =========================================================
+# Booking / Payment Types
+# =========================================================
+
+@app.get("/booking-payment-types")
+async def get_booking_payment_types():
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(BookingPaymentType)
+            .where(BookingPaymentType.is_active == True)
+            .order_by(BookingPaymentType.id)
+        )
+
+        return [
+            {
+                "id": item.id,
+                "code": item.code,
+                "source": item.source,
+                "payment_method": item.payment_method,
+                "label": item.label,
+                "is_active": item.is_active,
+                "is_cash": item.payment_method.strip().lower() == "cash",
+                "created_at": item.created_at,
+            }
+            for item in result.scalars().all()
+        ]
+
+
+@app.post("/booking-payment-types")
+async def create_booking_payment_type(
+    data: BookingPaymentTypeCreate
+):
+    source = data.source.strip()
+    payment_method = data.payment_method.strip()
+    label = (data.label or "").strip()
+    code = (data.code or "").strip().lower()
+
+    if not source:
+        raise HTTPException(status_code=400, detail="Booking source is required")
+
+    if payment_method.lower() not in {"paid", "cash"}:
+        raise HTTPException(status_code=400, detail="Payment method must be Paid or Cash")
+
+    if not code:
+        safe_source = "".join(
+            character.lower() if character.isalnum() else "_"
+            for character in source
+        ).strip("_")
+        safe_method = payment_method.lower()
+        code = f"{safe_source}_{safe_method}"
+
+    if not label:
+        label = f"{source} — {payment_method.title()}"
+
+    async with AsyncSessionLocal() as session:
+        existing = await session.execute(
+            select(BookingPaymentType).where(
+                BookingPaymentType.code == code
+            )
+        )
+
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Booking / Payment type code already exists")
+
+        item = BookingPaymentType(
+            code=code,
+            source=source,
+            payment_method=payment_method.title(),
+            label=label,
+            is_active=data.is_active,
+        )
+
+        session.add(item)
+        await session.commit()
+        await session.refresh(item)
+
+        return {
+            "success": True,
+            "message": "Booking / Payment type added successfully",
+            "booking_payment_type": {
+                "id": item.id,
+                "code": item.code,
+                "source": item.source,
+                "payment_method": item.payment_method,
+                "label": item.label,
+                "is_active": item.is_active,
+                "is_cash": item.payment_method.strip().lower() == "cash",
+                "created_at": item.created_at,
+            },
+        }
+
+
+@app.patch("/booking-payment-types/{item_id}")
+async def update_booking_payment_type(
+    item_id: int,
+    data: BookingPaymentTypeUpdate
+):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(BookingPaymentType).where(
+                BookingPaymentType.id == item_id
+            )
+        )
+        item = result.scalar_one_or_none()
+
+        if not item:
+            raise HTTPException(status_code=404, detail="Booking / Payment type not found")
+
+        if data.source is not None:
+            source = data.source.strip()
+            if not source:
+                raise HTTPException(status_code=400, detail="Booking source cannot be empty")
+            item.source = source
+
+        if data.payment_method is not None:
+            payment_method = data.payment_method.strip()
+            if payment_method.lower() not in {"paid", "cash"}:
+                raise HTTPException(status_code=400, detail="Payment method must be Paid or Cash")
+            item.payment_method = payment_method.title()
+
+        if data.label is not None:
+            label = data.label.strip()
+            if not label:
+                raise HTTPException(status_code=400, detail="Label cannot be empty")
+            item.label = label
+
+        if data.is_active is not None:
+            item.is_active = data.is_active
+
+        await session.commit()
+        await session.refresh(item)
+
+        return {
+            "success": True,
+            "message": "Booking / Payment type updated successfully",
+            "booking_payment_type": {
+                "id": item.id,
+                "code": item.code,
+                "source": item.source,
+                "payment_method": item.payment_method,
+                "label": item.label,
+                "is_active": item.is_active,
+                "is_cash": item.payment_method.strip().lower() == "cash",
+                "created_at": item.created_at,
+            },
+        }
+
+
+# =========================================================
 # Get Reservation
 # =========================================================
 
@@ -4524,23 +4715,30 @@ async def create_reservation(
     # Payment Type
     # =====================================================
 
-    if (
-        data.payment_type
-        and data.payment_type
-        not in ALLOWED_PAYMENT_TYPES
-    ):
+    payment_type_record = None
+    if data.payment_type:
+        async with AsyncSessionLocal() as payment_session:
+            payment_result = await payment_session.execute(
+                select(BookingPaymentType).where(
+                    BookingPaymentType.code == data.payment_type,
+                    BookingPaymentType.is_active == True,
+                )
+            )
+            payment_type_record = payment_result.scalar_one_or_none()
 
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid payment type",
-        )
+        if not payment_type_record:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid payment type",
+            )
 
     # =====================================================
     # Cash
     # =====================================================
 
-    is_cash = is_cash_payment(
-        data.payment_type
+    is_cash = bool(
+        payment_type_record
+        and payment_type_record.payment_method.strip().lower() == "cash"
     )
 
     if is_cash:
@@ -5427,8 +5625,22 @@ async def send_reservation_email(
         # Build Email
         # =================================================
 
-        payment_label = get_payment_label(
-            reservation.reservation_type
+        payment_type_result = await session.execute(
+            select(BookingPaymentType).where(
+                BookingPaymentType.code == reservation.reservation_type
+            )
+        )
+        payment_type_record = payment_type_result.scalar_one_or_none()
+
+        payment_label = (
+            payment_type_record.label
+            if payment_type_record
+            else get_payment_label(reservation.reservation_type)
+        )
+
+        is_cash_email = bool(
+            payment_type_record
+            and payment_type_record.payment_method.strip().lower() == "cash"
         )
 
         nights = calculate_nights(
@@ -5442,7 +5654,7 @@ async def send_reservation_email(
         )
 
         total_egp = None
-        if is_cash_payment(reservation.reservation_type):
+        if is_cash_email:
             total_egp = sum(
                 float(room.total_price_egp or 0)
                 for room in reservation.rooms
@@ -5531,10 +5743,6 @@ async def send_reservation_email(
         # =================================================
         # Dynamic HTML Reservation Table
         # =================================================
-
-        is_cash_email = is_cash_payment(
-            reservation.reservation_type
-        )
 
         currency_headers = (
             "<th>Price / Night<br><span class='muted'>USD / EGP</span></th>"
